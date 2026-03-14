@@ -74,6 +74,8 @@ export function ModelConfigPanel() {
           if (m.reasoning !== undefined) writable.reasoning = m.reasoning
           if (m.contextWindow !== undefined) writable.contextWindow = m.contextWindow
           if (m.maxTokens !== undefined) writable.maxTokens = m.maxTokens
+          // Preserve input capability array (e.g. ["text","image"]) — required for vision support
+          if (Array.isArray(m.input) && m.input.length > 0) writable.input = m.input
           return writable
         })
         cleanProviders[id] = { ...rest, models: cleanModels }

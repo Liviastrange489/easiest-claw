@@ -282,6 +282,10 @@ interface DialogModelRowProps {
 
 function DialogModelRow({ model, onUpdate, onDelete }: DialogModelRowProps) {
   const { t } = useI18n()
+  const hasVision = Array.isArray(model.input) && model.input.includes("image")
+  const toggleVision = () => {
+    onUpdate({ input: hasVision ? ["text"] : ["text", "image"] })
+  }
   return (
     <div className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm bg-muted/20">
       <div className="flex-1 min-w-0">
@@ -299,6 +303,14 @@ function DialogModelRow({ model, onUpdate, onDelete }: DialogModelRowProps) {
           onClick={() => onUpdate({ reasoning: !model.reasoning })}
         >
           {t("modelConfig.reasoning")}
+        </Button>
+        <Button
+          variant={hasVision ? "default" : "outline"}
+          size="xs"
+          className="text-xs h-6 px-2"
+          onClick={toggleVision}
+        >
+          {t("modelConfig.vision")}
         </Button>
         <Button variant="ghost" size="icon-xs" onClick={onDelete}>
           <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />

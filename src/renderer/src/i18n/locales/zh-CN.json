@@ -276,6 +276,7 @@
     "suggestedModels": "推荐模型",
     "done": "完成",
     "reasoning": "推理",
+    "vision": "视觉",
     "providerId": "服务商 ID",
     "addProvider": "添加服务商",
     "addProviderDesc": "选择一个已知的 AI 服务商快速添加，或创建自定义配置",

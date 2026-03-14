@@ -4,6 +4,8 @@ export interface ModelConfig {
   contextWindow?: number
   maxTokens?: number
   reasoning?: boolean
+  /** Vision capability: ["text"] = text-only, ["text","image"] = vision enabled */
+  input?: string[]
 }
 
 export interface ModelProvider {

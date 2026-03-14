@@ -250,6 +250,7 @@
     "suggestedModels": "Suggested Models",
     "done": "Done",
     "reasoning": "Reasoning",
+    "vision": "비전",
     "providerId": "Provider ID",
     "addProvider": "Add Provider",
     "addProviderDesc": "Choose a known AI provider for quick setup, or create a custom one",
