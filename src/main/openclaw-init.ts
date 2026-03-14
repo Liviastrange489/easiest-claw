@@ -112,8 +112,11 @@ export async function extractOpenClawIfNeeded(
     currentVersion = app.getVersion()
   }
 
-  // 已解压且版本一致 → 跳过
-  if (existsSync(markerPath)) {
+  // 已解压且版本一致 → 跳过（同时验证目录和入口脚本实际存在，防止 NSIS 升级后目录被清空但标记残留）
+  const entryExists =
+    existsSync(join(destDir, 'easiest-claw-gateway.mjs')) ||
+    existsSync(join(destDir, 'openclaw.mjs'))
+  if (existsSync(markerPath) && entryExists) {
     try {
       const installedVersion = readFileSync(markerPath, 'utf8').trim()
       if (installedVersion === currentVersion) {
