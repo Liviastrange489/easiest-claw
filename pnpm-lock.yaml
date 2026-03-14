@@ -82,8 +82,8 @@ importers:
         specifier: ^0.5.7
         version: 0.5.7
       '@types/archiver':
-        specifier: ^6.0.3
-        version: 6.0.4
+        specifier: ^7.0.0
+        version: 7.0.0
       '@types/node':
         specifier: ^22.13.10
         version: 22.19.15
@@ -1319,8 +1319,8 @@ packages:
   '@types/adm-zip@0.5.7':
     resolution: {integrity: sha512-DNEs/QvmyRLurdQPChqq0Md4zGvPwHerAJYWk9l2jCbD1VPpnzRJorOdiq4zsw09NFbYnhfsoEhWtxIzXpn2yw==}
 
-  '@types/archiver@6.0.4':
-    resolution: {integrity: sha512-ULdQpARQ3sz9WH4nb98mJDYA0ft2A8C4f4fovvUcFwINa1cgGjY36JCAYuP5YypRq4mco1lJp1/7jEMS2oR0Hg==}
+  '@types/archiver@7.0.0':
+    resolution: {integrity: sha512-/3vwGwx9n+mCQdYZ2IKGGHEFL30I96UgBlk8EtRDDFQ9uxM1l4O5Ci6r00EMAkiDaTqD9DQ6nVrWRICnBPtzzg==}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -5533,7 +5533,7 @@ snapshots:
     dependencies:
       '@types/node': 22.19.15
 
-  '@types/archiver@6.0.4':
+  '@types/archiver@7.0.0':
     dependencies:
       '@types/readdir-glob': 1.1.5
 
