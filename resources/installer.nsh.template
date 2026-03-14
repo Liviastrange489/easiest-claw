@@ -35,7 +35,10 @@
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="{{APP_NAME}}"'
   DetailPrint "防火墙规则已移除。"
 
-  ; 询问用户是否同时清除 AppData 中的用户设置与数据
+  ; 升级安装时，新安装包会静默（/S）调用旧版卸载程序，此时跳过用户数据清理弹窗
+  IfSilent done
+
+  ; 手动卸载时才询问用户是否同时清除 AppData 中的用户设置与数据
   MessageBox MB_YESNO|MB_ICONQUESTION \
     "是否同时删除 {{APP_NAME}} 的用户设置和缓存数据？$\n$\n\
 选择「是」将彻底清除（AppData\Roaming\{{PRODUCT_NAME}}），$\n\
