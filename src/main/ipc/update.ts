@@ -9,6 +9,7 @@ import { spawn } from 'child_process'
 import { stopGatewayProcess, restartBundledGateway, getBundledOpenclawVersion, waitForPortClosed } from '../gateway/bundled-process'
 
 const REGISTRY = 'https://registry.npmmirror.com'
+const REGISTRY_FALLBACK = 'https://registry.npmjs.org'
 
 const UNUSED_LARGE_PKGS = [
   'koffi', 'pdfjs-dist', 'node-llama-cpp', '@node-llama-cpp',
@@ -79,12 +80,12 @@ function getOpenclawDir(): string | null {
   return null
 }
 
-function getNpmArgs(version: string): { cmd: string; args: string[]; shell: boolean } {
+function getNpmArgs(version: string, registry: string): { cmd: string; args: string[]; shell: boolean } {
   const nodeDir = app.isPackaged
     ? join(process.resourcesPath, 'node')
     : join(app.getAppPath(), 'resources', 'node')
 
-  const installArgs = ['install', `openclaw@${version}`, '--registry', REGISTRY, '--no-audit', '--no-fund']
+  const installArgs = ['install', `openclaw@${version}`, '--registry', registry, '--no-audit', '--no-fund']
 
   if (process.platform === 'win32') {
     const cmd = join(nodeDir, 'npm.cmd')
@@ -158,24 +159,34 @@ async function runNpmInstall(
     overrides: { 'libsignal-node': `file:${stubDir.replace(/\\/g, '/')}` },
   }))
 
-  const { cmd, args, shell } = getNpmArgs(version)
-
-  return new Promise((resolve) => {
-    const child = spawn(cmd, args, {
-      cwd: tmpDir,
-      shell,
-      windowsHide: true,
-    })
-    const handleOut = (data: Buffer) => {
-      for (const line of data.toString().split('\n')) {
-        if (line.trim()) send('download', 'running', line.trim())
+  const tryInstall = (registry: string): Promise<boolean> => {
+    const { cmd, args, shell } = getNpmArgs(version, registry)
+    return new Promise((resolve) => {
+      const child = spawn(cmd, args, { cwd: tmpDir, shell, windowsHide: true })
+      const handleOut = (data: Buffer) => {
+        for (const line of data.toString().split('\n')) {
+          if (line.trim()) send('download', 'running', line.trim())
+        }
       }
-    }
-    child.stdout?.on('data', handleOut)
-    child.stderr?.on('data', handleOut)
-    child.on('close', (code) => resolve(code === 0))
-    child.on('error', () => resolve(false))
-  })
+      child.stdout?.on('data', handleOut)
+      child.stderr?.on('data', handleOut)
+      child.on('close', (code) => resolve(code === 0))
+      child.on('error', () => resolve(false))
+    })
+  }
+
+  // 先用镜像源，失败时 fallback 到官方源
+  send('download', 'running', `正在从 ${REGISTRY} 下载 openclaw@${version}...`)
+  const ok = await tryInstall(REGISTRY)
+  if (ok) return true
+
+  send('download', 'running', `镜像源失败，切换到官方源 ${REGISTRY_FALLBACK}...`)
+  // 清理上次失败产物，重新安装
+  try {
+    const mods = join(tmpDir, 'node_modules')
+    if (existsSync(mods)) await fs.promises.rm(mods, { recursive: true, force: true })
+  } catch {}
+  return tryInstall(REGISTRY_FALLBACK)
 }
 
 async function performUpgrade(

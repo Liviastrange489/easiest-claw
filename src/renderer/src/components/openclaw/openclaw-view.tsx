@@ -806,6 +806,8 @@ function VersionCard({updateInfo, checking, upgrade, envLoading, activeSource, o
     const allLogs = (Object.entries(upgrade.steps) as [UpgradeStep, { status: string; logs: string[] }][])
         .flatMap(([, s]) => s.logs)
 
+    const hasUpgradeError = Object.values(upgrade.steps).some(s => s.status === 'error')
+
     return (
         <Card className="p-5">
             <div className="flex items-center gap-2 mb-4">
@@ -884,7 +886,7 @@ function VersionCard({updateInfo, checking, upgrade, envLoading, activeSource, o
             </div>
 
             {/* 升级进度 */}
-            {upgrade.running && (
+            {(upgrade.running || hasUpgradeError) && (
                 <>
                     <Separator className="my-4"/>
                     <div className="space-y-2">
