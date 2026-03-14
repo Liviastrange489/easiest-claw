@@ -1,6 +1,7 @@
 ; installer.nsh — EasiestClaw 自定义 NSIS 安装钩子
 ; 在安装/卸载时自动添加/删除 Windows Defender 防火墙规则，
 ; 避免用户首次启动时收到"是否允许连接网络"的拦截弹窗。
+; ⚠️  此文件由 scripts/apply-branding.mjs 从 installer.nsh.template 自动生成，请勿直接编辑。
 
 ; 安装详情面板默认展开，用户无需手动点击 "Details" 按钮
 !macro customHeader
@@ -33,4 +34,14 @@
   DetailPrint "正在移除 Windows 防火墙规则..."
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="EasiestClaw"'
   DetailPrint "防火墙规则已移除。"
+
+  ; 询问用户是否同时清除 AppData 中的用户设置与数据
+  MessageBox MB_YESNO|MB_ICONQUESTION \
+    "是否同时删除 EasiestClaw 的用户设置和缓存数据？$\n$\n\
+选择「是」将彻底清除（AppData\Roaming\EasiestClaw），$\n\
+选择「否」则保留，重新安装后可自动恢复设置。" \
+    IDNO done
+  RMDir /r "$APPDATA\EasiestClaw"
+  DetailPrint "用户数据已清除。"
+  done:
 !macroend

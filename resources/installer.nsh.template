@@ -34,4 +34,14 @@
   DetailPrint "正在移除 Windows 防火墙规则..."
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="{{APP_NAME}}"'
   DetailPrint "防火墙规则已移除。"
+
+  ; 询问用户是否同时清除 AppData 中的用户设置与数据
+  MessageBox MB_YESNO|MB_ICONQUESTION \
+    "是否同时删除 {{APP_NAME}} 的用户设置和缓存数据？$\n$\n\
+选择「是」将彻底清除（AppData\Roaming\{{PRODUCT_NAME}}），$\n\
+选择「否」则保留，重新安装后可自动恢复设置。" \
+    IDNO done
+  RMDir /r "$APPDATA\{{PRODUCT_NAME}}"
+  DetailPrint "用户数据已清除。"
+  done:
 !macroend
