@@ -26,6 +26,18 @@
 
 ---
 
+## [0.0.3-beta]
+
+### 新增
+
+- 应用自动更新：通过 GitHub Releases 自动检测新版本，发现更新后显示 Toast 通知，支持一键下载并重启安装
+
+### 修复
+
+- CI：修复 electron-builder 在 tag push 时因缺少 GH_TOKEN 导致构建失败（加 --publish never，由 softprops 统一上传）
+
+---
+
 ## [0.0.2-beta] - 2026-03-14
 
 > 在这里写下一个版本的更新内容，发版时会自动提取为 Release 正文。

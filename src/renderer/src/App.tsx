@@ -15,6 +15,7 @@ import { AgentConfigView } from '@/components/agent-config/agent-config-view'
 import { PortConflictDialog } from '@/components/openclaw/port-conflict-dialog'
 import { OnboardingFlow, GatewayLoadingScreen } from '@/components/onboarding/onboarding-flow'
 import { isOnboardingDone } from '@/lib/avatar'
+import { useAppUpdate } from '@/hooks/use-app-update'
 
 function MainContent() {
   const { state } = useApp()
@@ -66,6 +67,8 @@ function AppRoot() {
 }
 
 export default function App() {
+  useAppUpdate()
+
   return (
     <LanguageProvider initialLocale="zh-CN" initialPreference="system">
       <TooltipProvider>

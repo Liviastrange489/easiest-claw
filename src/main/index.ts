@@ -9,6 +9,7 @@ import { autoSpawnBundledOpenclaw, addGatewayLogListener } from './gateway/bundl
 import { extractOpenClawIfNeeded, getExtractState, confirmUpgrade, skipUpgrade } from './openclaw-init'
 import { logger } from './lib/logger'
 import { FIREWALL_RULE_NAME, APP_ID } from '@shared/branding'
+import { initAppUpdater, registerAppUpdaterHandlers } from './app-updater'
 
 // App icon（开发和生产均用同一份，electron-builder 打包时也从 package.json 读取）
 const APP_ICON = join(app.getAppPath(), 'resources', 'icon.ico')
@@ -127,6 +128,7 @@ app.whenReady().then(async () => {
 
   // Register all IPC handlers
   registerAllIpcHandlers(ipcMain)
+  registerAppUpdaterHandlers(ipcMain)
 
   // 渲染进程可以随时查询当前解压状态（用于挂载后补偿错过的进度推送）
   ipcMain.handle('openclaw:extract-status', () => getExtractState())
@@ -191,6 +193,9 @@ app.whenReady().then(async () => {
       mainWindow = createWindow()
     }
   })
+
+  // 初始化 app 自动更新（打包版本）
+  initAppUpdater(mainWindow)
 })
 
 app.on('window-all-closed', async () => {

@@ -22,6 +22,22 @@ ipcRenderer.on('gateway:event', (_: Electron.IpcRendererEvent, event: unknown) =
   }
 })
 
+// ── App update forwarding (main → renderer) ───────────────────────────────────
+type AppUpdateStatusCallback = (status: {
+  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  releaseNotes?: string
+  progress?: number
+  error?: string
+}) => void
+const appUpdateCallbacks = new Set<AppUpdateStatusCallback>()
+
+ipcRenderer.on('app:update-status', (_: Electron.IpcRendererEvent, status: unknown) => {
+  for (const cb of appUpdateCallbacks) {
+    cb(status as Parameters<AppUpdateStatusCallback>[0])
+  }
+})
+
 // ── Install progress forwarding ───────────────────────────────────────────────
 type InstallProgressCallback = (progress: { step: string; status: string; detail?: string }) => void
 const installProgressCallbacks = new Set<InstallProgressCallback>()
@@ -197,6 +213,15 @@ const ipcApi = {
   onInstallProgress: (callback: InstallProgressCallback) => {
     installProgressCallbacks.add(callback)
     return () => installProgressCallbacks.delete(callback)
+  },
+
+  // ── App auto-update ───────────────────────────────────────────────────────
+  appCheckUpdate: () => ipcRenderer.invoke('app:check-update'),
+  appDownloadUpdate: () => ipcRenderer.invoke('app:download-update'),
+  appInstallUpdate: () => ipcRenderer.invoke('app:install-update'),
+  onAppUpdateStatus: (callback: AppUpdateStatusCallback) => {
+    appUpdateCallbacks.add(callback)
+    return () => appUpdateCallbacks.delete(callback)
   },
 
   // ── Window controls (frameless) ───────────────────────────────────────────
