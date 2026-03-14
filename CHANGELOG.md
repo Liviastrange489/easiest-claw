@@ -26,6 +26,15 @@
 
 ---
 
+## [0.0.9-beta] - 2026-03-15
+
+### 修复
+
+- 彻底修复 OpenClaw 升级时因系统未安装 git 导致 npm install 失败的问题：注入临时目录的假 git 脚本到 PATH，拦截 npm 对 git 的所有调用（ls-remote/clone），全程无需系统 git
+- 修复 macOS CI 构建因缺少 `contents: write` 权限导致 GitHub Release 上传 403 报错
+
+---
+
 ## [0.0.8-beta] - 2026-03-14
 
 ### 新增
