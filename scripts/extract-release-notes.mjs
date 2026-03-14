@@ -24,8 +24,9 @@ if (!version) {
 const changelog = readFileSync(resolve(root, 'CHANGELOG.md'), 'utf8')
 const lines = changelog.split('\n')
 
-// 找到 ## [version] 开头的行
-const startPattern = new RegExp(`^## \\[${version.replace('.', '\\.')}\\]`)
+// 找到 ## [version] 开头的行（转义版本号中所有特殊正则字符）
+const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const startPattern = new RegExp(`^## \\[${escapedVersion}\\]`)
 const sectionPattern = /^## \[/
 
 let inSection = false

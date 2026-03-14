@@ -33,8 +33,8 @@ function run(cmd) {
 
 // ── 参数校验 ──────────────────────────────────────────────────────────────────
 const version = process.argv[2]
-if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
-  console.error('用法: pnpm run release <version>  (例如: 0.2.0)')
+if (!version || !/^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/.test(version)) {
+  console.error('用法: pnpm run release <version>  (例如: 0.2.0 或 0.2.0-beta)')
   process.exit(1)
 }
 

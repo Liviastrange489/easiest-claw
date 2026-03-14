@@ -65,8 +65,6 @@ jobs:
 
       - name: Package NSIS installer
         run: pnpm exec electron-builder --win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

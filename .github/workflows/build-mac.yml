@@ -85,7 +85,6 @@ jobs:
       - name: Package DMG
         run: pnpm exec electron-builder --mac --${{ matrix.arch }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Upload artifact
