@@ -28,9 +28,9 @@
 
 ## [0.0.17-beta] - 2026-03-15
 
-### 变更
+### 修复
 
--
+- 彻底修复程序内升级 OpenClaw 时因系统未安装 git 导致 npm install 失败（ENOENT）：重新引入 fake git 注入机制，同时通过 PATH 前置和 npm_config_git 环境变量双重保障，确保 npm 10 的 git 探测不会中断安装流程
 
 ---
 
