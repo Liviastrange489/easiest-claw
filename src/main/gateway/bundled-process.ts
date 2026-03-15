@@ -255,6 +255,57 @@ export function stopGatewayProcess(): void {
   }
 }
 
+/**
+ * 优雅停止 Gateway：先 SIGTERM，超时后 SIGKILL，返回后进程已不存在。
+ * OpenClaw 不支持 shutdown RPC，只能通过进程信号停止。
+ */
+export async function stopGatewayGracefully(timeoutMs = 5000): Promise<void> {
+  if (!gatewayProcess) return
+
+  const child = gatewayProcess
+  const pid = child.pid
+
+  // 防止 exit 事件触发自动重启
+  autoRestartCount = MAX_AUTO_RESTARTS
+
+  await new Promise<void>((resolve) => {
+    let exited = false
+
+    const onExit = () => {
+      exited = true
+      clearTimeout(forceKillTimer)
+      resolve()
+    }
+    child.once('exit', onExit)
+
+    // Phase 1: SIGTERM / TerminateProcess（Electron utilityProcess.kill()）
+    logger.info(`[Gateway] 发送终止信号 (pid=${pid ?? 'unknown'})`)
+    try { child.kill() } catch {}
+
+    // Phase 2: 超时后强制杀死
+    const forceKillTimer = setTimeout(() => {
+      if (!exited) {
+        logger.warn(`[Gateway] ${timeoutMs}ms 内未退出，强制终止 (pid=${pid ?? 'unknown'})`)
+        console.warn(`[Gateway] force-killing pid=${pid ?? 'unknown'}`)
+        if (pid) {
+          try {
+            if (process.platform === 'win32') {
+              // Windows: taskkill /F /T 终止进程树
+              spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true })
+                .on('error', () => {})
+            } else {
+              process.kill(pid, 'SIGKILL')
+            }
+          } catch {}
+        }
+        resolve()
+      }
+    }, timeoutMs)
+  })
+
+  gatewayProcess = null
+}
+
 export function forkOpenclawGateway(entryScript: string, openclawDir: string, token: string, force = false): void {
   if (gatewayProcess && !force) return
   if (gatewayProcess && force) {

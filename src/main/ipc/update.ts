@@ -6,7 +6,15 @@ import { join, dirname } from 'path'
 import os from 'os'
 import https from 'https'
 import { spawn } from 'child_process'
-import { stopGatewayProcess, restartBundledGateway, getBundledOpenclawVersion, waitForPortClosed, getBundledNpmBin, getBundledGitBin } from '../gateway/bundled-process'
+import {
+  stopGatewayGracefully,
+  restartBundledGateway,
+  getBundledOpenclawVersion,
+  waitForPortClosed,
+  getBundledNpmBin,
+  getBundledGitBin,
+  GATEWAY_PORT,
+} from '../gateway/bundled-process'
 
 const REGISTRY = 'https://registry.npmmirror.com'
 const REGISTRY_FALLBACK = 'https://registry.npmjs.org'
@@ -120,18 +128,11 @@ async function readCurrentVersion(): Promise<string | null> {
   return dir ? getBundledOpenclawVersion(dir) : null
 }
 
-// ── 升级执行 ──────────────────────────────────────────────────────────────────
+// ── 进度发送器类型 ─────────────────────────────────────────────────────────────
 type ProgressSender = (step: string, status: 'running' | 'done' | 'error', detail?: string) => void
 
-/**
- * 用内置 npm 在 wrapper 目录安装指定版本的 openclaw 及全部依赖。
- *
- * 策略与 bundle-openclaw.mjs 完全相同：
- *   1. 建 wrapper package.json，把 openclaw 列为 dependency，libsignal-node 用 stub override
- *   2. 运行 `npm install openclaw@version`（先镜像源，失败再官方源）
- *   3. 返回 wrapper 的 node_modules 目录（npm 已把 openclaw 及其全部依赖装进去）
- */
-async function installOpenclawInWrapper(
+// ── Step 1: 下载 —— npm install openclaw@version（gateway 仍在运行）────────────
+async function downloadOpenclaw(
   version: string, wrapperDir: string, send: ProgressSender
 ): Promise<boolean> {
   // 写 libsignal-node stub（避免 git clone 失败）
@@ -152,20 +153,19 @@ async function installOpenclawInWrapper(
   }, null, 2))
 
   const npmBin = getBundledNpmBin()
-  const nodeDir = dirname(npmBin)
+  const nodeBin = dirname(npmBin)
   const baseArgs = ['install', '--no-audit', '--no-fund', '--ignore-scripts']
 
   const pathSep = process.platform === 'win32' ? ';' : ':'
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
-    PATH: `${nodeDir}${pathSep}${process.env.PATH ?? ''}`,
+    PATH: `${nodeBin}${pathSep}${process.env.PATH ?? ''}`,
   }
-  // Windows 使用内置 MinGit；macOS/Linux 系统自带 git，无需额外设置
   const bundledGit = getBundledGitBin()
   if (bundledGit) env.npm_config_git = bundledGit
 
   for (const registry of [REGISTRY, REGISTRY_FALLBACK]) {
-    send('download', 'running', `正在从 ${registry} 安装 openclaw@${version}...`)
+    send('download', 'running', `正在从 ${registry} 下载 openclaw@${version}...`)
     const ok = await new Promise<boolean>((resolve) => {
       const child = spawn(npmBin, [...baseArgs, '--registry', registry], {
         cwd: wrapperDir,
@@ -179,101 +179,196 @@ async function installOpenclawInWrapper(
       child.on('error', () => resolve(false))
     })
     if (ok) return true
-    send('download', 'running', `${registry} 安装失败，切换到下一个源...`)
+    send('download', 'running', `${registry} 失败，切换到下一个源...`)
   }
   return false
 }
 
+// ── Step 2: 验证下载结果 ───────────────────────────────────────────────────────
+async function verifyDownload(wrapperDir: string, version: string): Promise<string | null> {
+  const openclawSrc = join(wrapperDir, 'node_modules', 'openclaw')
+  if (!existsSync(openclawSrc)) return '找不到 openclaw 包，npm install 结果异常'
+
+  const pkgPath = join(openclawSrc, 'package.json')
+  if (!existsSync(pkgPath)) return '找不到 openclaw/package.json'
+
+  try {
+    const pkg = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8')) as { version?: string }
+    if (pkg.version !== version) return `版本不匹配：期望 ${version}，实际 ${pkg.version ?? '未知'}`
+  } catch {
+    return 'package.json 读取失败'
+  }
+
+  const entryFile = join(openclawSrc, 'openclaw.mjs')
+  if (!existsSync(entryFile)) return '找不到 openclaw.mjs 入口文件'
+
+  return null
+}
+
+// ── Step 3: 暂存新版本到 stagingDir（gateway 仍在运行）────────────────────────
+// stagingDir 与 openclawDir 同盘，之后可以 rename 迁移（原子操作）
+async function stageNewOpenclaw(
+  wrapperDir: string, stagingDir: string, send: ProgressSender
+): Promise<void> {
+  const newOpenclawSrc = join(wrapperDir, 'node_modules', 'openclaw')
+  const wrapperMods = join(wrapperDir, 'node_modules')
+
+  send('stage', 'running', '正在复制源文件...')
+
+  // 1. 复制 openclaw 源文件（不含 node_modules）
+  const srcEntries = await fs.promises.readdir(newOpenclawSrc)
+  await Promise.all(
+    srcEntries
+      .filter(e => e !== 'node_modules')
+      .map(e => fs.promises.cp(join(newOpenclawSrc, e), join(stagingDir, e), { recursive: true }))
+  )
+
+  send('stage', 'running', '正在复制依赖...')
+
+  // 2. 复制依赖到 stagingDir/node_modules（跳过 openclaw 自身和无用大包）
+  const targetMods = join(stagingDir, 'node_modules')
+  await fs.promises.mkdir(targetMods, { recursive: true })
+
+  const modEntries = await fs.promises.readdir(wrapperMods)
+  await Promise.all(
+    modEntries
+      .filter(e => e !== 'openclaw' && e !== '.package-lock.json')
+      .filter(e => !UNUSED_LARGE_PKGS.includes(e))
+      .map(e => fs.promises.cp(join(wrapperMods, e), join(targetMods, e), { recursive: true }))
+  )
+
+  // 3. 写入 easiest-claw-gateway.mjs
+  await fs.promises.writeFile(join(stagingDir, 'easiest-claw-gateway.mjs'), EASIEST_CLAW_GATEWAY_SCRIPT)
+}
+
+// ── Step 5: 备份 + 迁移（原子 rename，gateway 已停止）────────────────────────
+async function backupAndMigrate(
+  openclawDir: string, stagingDir: string, backupDir: string, send: ProgressSender
+): Promise<void> {
+  send('install', 'running', '正在备份旧版本...')
+  await fs.promises.rename(openclawDir, backupDir)
+
+  send('install', 'running', '正在迁移新版本...')
+  await fs.promises.rename(stagingDir, openclawDir)
+}
+
+// ── 回滚：恢复备份并重启旧 Gateway ───────────────────────────────────────────
+async function rollback(
+  openclawDir: string, backupDir: string, send: ProgressSender
+): Promise<void> {
+  send('rollback', 'running', '正在回滚...')
+  try {
+    if (existsSync(openclawDir)) {
+      await fs.promises.rm(openclawDir, { recursive: true, force: true })
+    }
+    if (existsSync(backupDir)) {
+      await fs.promises.rename(backupDir, openclawDir)
+      send('rollback', 'done', '已恢复旧版本')
+    } else {
+      send('rollback', 'error', '备份不存在，无法回滚')
+    }
+  } catch (e) {
+    send('rollback', 'error', `回滚失败: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+// ── 主升级函数 ─────────────────────────────────────────────────────────────────
 async function performUpgrade(
   version: string, openclawDir: string, send: ProgressSender
 ): Promise<{ ok: boolean; error?: string }> {
+  // tmpDir 用于 npm install，stagingDir 与 openclawDir 同盘（保证 rename 原子性）
   const tmpDir = join(os.tmpdir(), `openclaw-update-${Date.now()}`)
-  await fs.promises.mkdir(tmpDir, { recursive: true })
+  const stagingDir = openclawDir + '.new'
+  const backupDir = openclawDir + '.backup'
+  const wrapperDir = join(tmpDir, 'wrapper')
+  let gatewayWasStopped = false
 
   try {
-    // ── 1. Stop gateway ───────────────────────────────────────────────────────
-    send('stop', 'running', '正在停止 Gateway...')
-    stopGatewayProcess()
-    const portClosed = await waitForPortClosed(18789, 10_000)
-    if (!portClosed) {
-      send('stop', 'running', 'Gateway 端口释放较慢，继续等待...')
-      await new Promise(r => setTimeout(r, 3000))
-    }
-    send('stop', 'done', 'Gateway 已停止')
-
-    // ── 2. npm install openclaw@version（含全部依赖，libsignal stub override）──
-    // 与 bundle-openclaw.mjs 策略相同，彻底避免手动 tarball + 依赖缺失问题
-    const wrapperDir = join(tmpDir, 'wrapper')
+    await fs.promises.mkdir(tmpDir, { recursive: true })
     await fs.promises.mkdir(wrapperDir, { recursive: true })
-    const installOk = await installOpenclawInWrapper(version, wrapperDir, send)
-    if (!installOk) {
-      send('download', 'error', '安装失败，请检查网络')
-      return { ok: false, error: '安装失败' }
-    }
-    send('download', 'done', `openclaw@${version} 安装完成`)
+    await fs.promises.mkdir(stagingDir, { recursive: true })
 
-    // ── 3. 替换源文件（保留旧 node_modules，再用新 node_modules 覆盖/补全）────
-    send('install', 'running', '正在更新 OpenClaw 文件...')
-
-    const newOpenclawSrc = join(wrapperDir, 'node_modules', 'openclaw')
-    if (!existsSync(newOpenclawSrc)) {
-      send('install', 'error', 'npm 安装结果异常，找不到 openclaw 包')
-      return { ok: false, error: 'npm 安装结果异常' }
+    // 清理残留的上次备份/暂存目录
+    if (existsSync(backupDir)) {
+      await fs.promises.rm(backupDir, { recursive: true, force: true })
     }
 
-    // 替换源文件（不含 node_modules）
-    const openclawEntries = await fs.promises.readdir(openclawDir)
-    await Promise.all(
-      openclawEntries
-        .filter(entry => entry !== 'node_modules')
-        .map(entry => fs.promises.rm(join(openclawDir, entry), { recursive: true, force: true }))
-    )
-    const newSrcEntries = await fs.promises.readdir(newOpenclawSrc)
-    await Promise.all(
-      newSrcEntries
-        .filter(entry => entry !== 'node_modules')
-        .map(entry => fs.promises.cp(join(newOpenclawSrc, entry), join(openclawDir, entry), { recursive: true }))
-    )
-
-    // 将新安装的依赖覆盖/写入 openclawDir/node_modules
-    const wrapperMods = join(wrapperDir, 'node_modules')
-    const newModEntries = await fs.promises.readdir(wrapperMods)
-    const targetMods = join(openclawDir, 'node_modules')
-    await fs.promises.mkdir(targetMods, { recursive: true })
-    await Promise.all(
-      newModEntries
-        .filter(e => e !== 'openclaw' && e !== '.package-lock.json')
-        .map(async e => {
-          const dest = join(targetMods, e)
-          // 先删后复制，确保版本更新
-          if (existsSync(dest)) await fs.promises.rm(dest, { recursive: true, force: true })
-          await fs.promises.cp(join(wrapperMods, e), dest, { recursive: true })
-        })
-    )
-
-    // 删除运行时不需要的大型包（与 bundle-openclaw.mjs 保持同步）
-    for (const pkg of UNUSED_LARGE_PKGS) {
-      const p = join(targetMods, pkg)
-      if (existsSync(p)) await fs.promises.rm(p, { recursive: true, force: true })
+    // ── Step 1: 下载（gateway 仍在运行，用户无感知）────────────────────────────
+    send('download', 'running', `正在下载 openclaw@${version}...`)
+    const downloadOk = await downloadOpenclaw(version, wrapperDir, send)
+    if (!downloadOk) {
+      send('download', 'error', '下载失败，请检查网络连接')
+      return { ok: false, error: '下载失败' }
     }
+    send('download', 'done', `openclaw@${version} 下载完成`)
 
-    send('install', 'done', `更新完成，当前版本 ${version}`)
+    // ── Step 2: 验证 ────────────────────────────────────────────────────────────
+    send('verify', 'running', '正在验证下载内容...')
+    const verifyErr = await verifyDownload(wrapperDir, version)
+    if (verifyErr) {
+      send('verify', 'error', verifyErr)
+      return { ok: false, error: verifyErr }
+    }
+    send('verify', 'done', '验证通过')
 
-    // ── 4. 写入 easiest-claw-gateway.mjs（含 pm_exec_path 修复）──────────────
-    await fs.promises.writeFile(join(openclawDir, 'easiest-claw-gateway.mjs'), EASIEST_CLAW_GATEWAY_SCRIPT)
+    // ── Step 3: 暂存（gateway 仍在运行）─────────────────────────────────────────
+    send('stage', 'running', '正在准备新版本文件...')
+    await stageNewOpenclaw(wrapperDir, stagingDir, send)
+    send('stage', 'done', '新版本文件已就绪')
 
-    // ── 5. 重启 Gateway ───────────────────────────────────────────────────────
-    send('start', 'running', '正在重启 Gateway...')
+    // ── Step 4: 停止 gateway（SIGTERM → SIGKILL）─────────────────────────────
+    send('stop', 'running', '正在停止 Gateway...')
+    await stopGatewayGracefully(5_000)
+    gatewayWasStopped = true
+
+    const portClosed = await waitForPortClosed(GATEWAY_PORT, 15_000)
+    if (!portClosed) {
+      send('stop', 'error', 'Gateway 端口未在 15s 内释放，升级中止')
+      // 尝试恢复 gateway（旧版本目录未动）
+      try { await restartBundledGateway() } catch {}
+      return { ok: false, error: 'Gateway 停止超时' }
+    }
+    send('stop', 'done', 'Gateway 已停止，端口已释放')
+
+    // ── Step 5+6: 备份 + 迁移（原子 rename，最短停机时间）─────────────────────
+    await backupAndMigrate(openclawDir, stagingDir, backupDir, send)
+    send('install', 'done', '文件迁移完成')
+
+    // ── Step 7: 启动新版本 ───────────────────────────────────────────────────
+    send('start', 'running', '正在启动新版 Gateway...')
     const started = await restartBundledGateway()
-    if (started) {
-      send('start', 'done', 'Gateway 已重启')
-    } else {
-      send('start', 'done', 'Gateway 正在后台启动，升级已完成，稍后将自动连接')
+
+    if (!started) {
+      // ── 回滚 ────────────────────────────────────────────────────────────────
+      send('start', 'error', '新版 Gateway 启动失败，正在回滚...')
+      await rollback(openclawDir, backupDir, send)
+      try { await restartBundledGateway() } catch {}
+      return { ok: false, error: '新版 Gateway 启动失败，已回滚至旧版本' }
     }
+
+    // ── Step 8: 清理备份 ────────────────────────────────────────────────────
+    send('start', 'done', `升级完成，当前版本 ${version}`)
+    fs.promises.rm(backupDir, { recursive: true, force: true }).catch(() => {})
 
     return { ok: true }
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    send('install', 'error', `升级异常: ${msg}`)
+    console.error('[Update] upgrade error:', err)
+
+    if (gatewayWasStopped) {
+      await rollback(openclawDir, backupDir, send)
+      try { await restartBundledGateway() } catch {}
+    }
+    return { ok: false, error: msg }
+
   } finally {
-    try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch {}
+    // 无论如何清理临时目录和残留暂存目录
+    fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+    if (existsSync(stagingDir)) {
+      fs.promises.rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+    }
   }
 }
 
@@ -288,7 +383,7 @@ export const registerUpdateHandlers = (ipcMain: IpcMain): void => {
     return { ok: true, result: { current, latest, hasUpdate } }
   })
 
-  // 执行升级（统一走内置路径）
+  // 执行升级
   ipcMain.handle('openclaw:upgrade', async (event, { version }: { version: string }) => {
     const send: ProgressSender = (step, status, detail) => {
       console.log(`[Update:${step}][${status}] ${detail ?? ''}`)
