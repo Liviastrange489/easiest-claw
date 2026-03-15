@@ -293,6 +293,9 @@ export function forkOpenclawGateway(entryScript: string, openclawDir: string, to
   child.stdout?.on('data', (d: Buffer) => splitLines(d, false))
   child.stderr?.on('data', (d: Buffer) => splitLines(d, true))
   child.on('exit', (code) => {
+    // 如果 gatewayProcess 已被换成新进程（升级重启场景），忽略旧进程的 exit 事件
+    if (gatewayProcess !== child) return
+
     logger.warn(`[Gateway] 进程退出 code=${code}`)
     console.log(`[Gateway] process exited (code=${code})`)
     gatewayProcess = null
