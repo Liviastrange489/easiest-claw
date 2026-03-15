@@ -98,8 +98,13 @@ export async function extractOpenClawIfNeeded(
   // openclaw 解压到 userData（%AppData%/EasiestClaw/openclaw/），而非安装目录内。
   // NSIS 升级时只替换安装目录（RMDir /r $INSTDIR），userData 不受影响，
   // 同版本 OpenClaw 升级 EasiestClaw Shell 后无需重新解压。
-  const destDir = join(app.getPath('userData'), 'openclaw')
-  const markerPath = join(app.getPath('userData'), '.openclaw-version')
+  //
+  // zip 内部路径自带 `openclaw/` 前缀（如 openclaw/openclaw.mjs），
+  // 所以 adm-zip extractEntryTo 的目标应传 userData 根目录（extractRoot），
+  // 解压后自动形成 userData/openclaw/... 结构。
+  const extractRoot = app.getPath('userData')
+  const destDir = join(extractRoot, 'openclaw')
+  const markerPath = join(extractRoot, '.openclaw-version')
 
   // 读取本次安装包携带的 openclaw 版本（由 bundle-openclaw.mjs 写入）
   // 用 openclaw 版本而非 app.getVersion()，避免更新 Shell 时触发不必要的重新解压
@@ -176,7 +181,7 @@ export async function extractOpenClawIfNeeded(
       new Promise<void>((resolve, reject) => {
         const worker = new Worker(WORKER_CODE, {
           eval: true,
-          workerData: { zipPath, destDir: resourcesPath, admZipPath },
+          workerData: { zipPath, destDir: extractRoot, admZipPath },
         })
 
         worker.on('message', (msg: { type: string; extracted?: number; total?: number; file?: string; message?: string }) => {

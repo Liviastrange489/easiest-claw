@@ -116,17 +116,20 @@ interface UpdateInfo {
     hasUpdate: boolean
 }
 
-type UpgradeStep = 'stop' | 'download' | 'install' | 'start'
+type UpgradeStep = 'download' | 'install' | 'stop' | 'migrate' | 'start'
 
 interface UpgradeState {
     running: boolean
     steps: Record<UpgradeStep, { status: 'pending' | 'running' | 'done' | 'error'; logs: string[] }>
 }
 
+const UPGRADE_STEP_KEYS: UpgradeStep[] = ['download', 'install', 'stop', 'migrate', 'start']
+
 const EMPTY_UPGRADE_STEPS = (): UpgradeState['steps'] => ({
-    stop: { status: 'pending', logs: [] },
     download: { status: 'pending', logs: [] },
     install: { status: 'pending', logs: [] },
+    stop: { status: 'pending', logs: [] },
+    migrate: { status: 'pending', logs: [] },
     start: { status: 'pending', logs: [] },
 })
 
@@ -280,7 +283,16 @@ export function OpenclawView() {
             const state = s as { running: boolean; steps: Record<string, { status: string; logs: string[] }> }
             if (state.running || Object.values(state.steps).some(v => v.status !== 'pending')) {
                 const pick = (key: string) => (state.steps[key] ?? { status: 'pending', logs: [] }) as { status: 'pending' | 'running' | 'done' | 'error'; logs: string[] }
-                setUpgrade({ running: state.running, steps: { stop: pick('stop'), download: pick('download'), install: pick('install'), start: pick('start') } })
+                setUpgrade({
+                    running: state.running,
+                    steps: {
+                        download: pick('download'),
+                        install: pick('install'),
+                        stop: pick('stop'),
+                        migrate: pick('migrate'),
+                        start: pick('start'),
+                    }
+                })
             }
         }).catch(() => {})
         window.ipc.gatewayLogsGet().then((logs) => {
@@ -821,14 +833,14 @@ interface VersionCardProps {
 
 function VersionCard({updateInfo, checking, upgrade, envLoading, activeSource, onCheckUpdate, onUpgrade}: VersionCardProps) {
     const upgradeStepLabels: Record<UpgradeStep, string> = {
+        download: '下载',
+        install: '安装',
         stop: '停止 Gateway',
-        download: activeSource === 'system' ? '全局更新 (npm -g)' : '下载新版本',
-        install: activeSource === 'system' ? '' : '安装文件',
-        start: '重启 Gateway',
+        migrate: '迁移文件',
+        start: '启动 Gateway',
     }
 
-    const visibleSteps = (Object.entries(upgrade.steps) as [UpgradeStep, { status: string; logs: string[] }][])
-        .filter(([step]) => activeSource !== 'system' || step !== 'install')
+    const visibleSteps = UPGRADE_STEP_KEYS.map(step => [step, upgrade.steps[step]] as [UpgradeStep, { status: string; logs: string[] }])
 
     const allLogs = (Object.entries(upgrade.steps) as [UpgradeStep, { status: string; logs: string[] }][])
         .flatMap(([, s]) => s.logs)

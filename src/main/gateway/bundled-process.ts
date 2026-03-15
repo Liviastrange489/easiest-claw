@@ -1,4 +1,4 @@
-import { app, utilityProcess } from 'electron'
+import { utilityProcess } from 'electron'
 import os from 'os'
 import fs from 'fs'
 import crypto from 'crypto'
@@ -10,6 +10,12 @@ import { patchSettings } from './settings'
 import { sanitizeOpenClawConfig } from '../openclaw-init'
 import { getOpenclawConfigPath } from '../lib/openclaw-config'
 import { logger } from '../lib/logger'
+import {
+  findOpenclawEntry,
+  getBundledNodeBin as _getBundledNodeBin,
+  getBundledNpmBin as _getBundledNpmBin,
+  getBundledGitBin as _getBundledGitBin,
+} from '../lib/openclaw-paths'
 
 export const GATEWAY_PORT = 18789
 
@@ -23,47 +29,12 @@ export function setGatewaySource(s: GatewaySource): void { gatewaySource = s }
 export function isPortConflictPending(): boolean { return portConflictPending }
 export function setPortConflictPending(v: boolean): void { portConflictPending = v }
 
-// ── Path utilities ─────────────────────────────────────────────────────────────
-export function getBundledOpenclaw(): { openclawDir: string; entryScript: string } | null {
-  const candidates = app.isPackaged
-    // 打包版：优先查 userData（解压目标），回退 resources（旧版兼容）
-    ? [join(app.getPath('userData'), 'openclaw'), join(process.resourcesPath, 'openclaw')]
-    : [join(app.getAppPath(), 'build', 'openclaw')]
-
-  for (const openclawDir of candidates) {
-    const wrapper = join(openclawDir, 'easiest-claw-gateway.mjs')
-    const entryScript = existsSync(wrapper) ? wrapper : join(openclawDir, 'openclaw.mjs')
-    if (existsSync(entryScript)) return { openclawDir, entryScript }
-  }
-  return null
-}
-
-export function getBundledGitBin(): string | null {
-  if (process.platform !== 'win32') return null
-  const gitDir = app.isPackaged
-    ? join(process.resourcesPath, 'git')
-    : join(app.getAppPath(), 'resources', 'git', 'win')
-  const gitExe = join(gitDir, 'cmd', 'git.exe')
-  return existsSync(gitExe) ? gitExe : null
-}
-
-export function getBundledNodeBin(): string {
-  const nodeDir = app.isPackaged
-    ? join(process.resourcesPath, 'node')
-    : join(app.getAppPath(), 'resources', 'node')
-  return process.platform === 'win32'
-    ? join(nodeDir, 'node.exe')
-    : join(nodeDir, 'node')
-}
-
-export function getBundledNpmBin(): string {
-  const nodeDir = app.isPackaged
-    ? join(process.resourcesPath, 'node')
-    : join(app.getAppPath(), 'resources', 'node')
-  return process.platform === 'win32'
-    ? join(nodeDir, 'npm.cmd')
-    : join(nodeDir, 'npm')
-}
+// ── Path utilities（委托给 lib/openclaw-paths.ts）────────────────────────────────
+// 保留导出名称以兼容现有调用方（update.ts 等）
+export const getBundledOpenclaw = findOpenclawEntry
+export const getBundledGitBin = _getBundledGitBin
+export const getBundledNodeBin = _getBundledNodeBin
+export const getBundledNpmBin = _getBundledNpmBin
 
 /**
  * 确保 openclaw 的依赖已安装。版本感知：openclaw 版本变化（如 in-app 升级后）就重新安装。
@@ -76,14 +47,14 @@ export async function ensureOpenclawDependencies(openclawDir: string): Promise<v
 
   let currentVersion: string | undefined
   try {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>
+    const pkg = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8')) as Record<string, unknown>
     currentVersion = typeof pkg.version === 'string' ? pkg.version : undefined
   } catch { return }
 
   // 版本标记文件：记录上次成功 npm install 时的 openclaw 版本
   const versionMarkPath = join(openclawDir, '.deps-installed-version')
   let installedVersion: string | null = null
-  try { installedVersion = fs.readFileSync(versionMarkPath, 'utf8').trim() } catch {}
+  try { installedVersion = (await fs.promises.readFile(versionMarkPath, 'utf8')).trim() } catch {}
 
   if (installedVersion === currentVersion) return // 版本未变，跳过
 
@@ -121,7 +92,7 @@ export async function ensureOpenclawDependencies(openclawDir: string): Promise<v
 
   // 安装成功后写版本标记，下次启动同版本不再重跑
   if (ok && currentVersion) {
-    try { fs.writeFileSync(versionMarkPath, currentVersion, 'utf8') } catch {}
+    try { await fs.promises.writeFile(versionMarkPath, currentVersion, 'utf8') } catch {}
   }
 }
 
