@@ -56,34 +56,35 @@ export function getBundledNpmBin(): string {
 }
 
 /**
- * 确保 openclaw 的直接依赖已安装。
- * 启动前调用，修复"程序内升级后 node_modules 未补全"导致的 ERR_MODULE_NOT_FOUND。
+ * 确保 openclaw 的依赖已安装。版本感知：openclaw 版本变化（如 in-app 升级后）就重新安装。
+ * 修复"程序内升级后 node_modules 未补全"导致的 ERR_MODULE_NOT_FOUND。
  * --omit=optional/peer 跳过 libsignal 等 git URL 依赖（已作为 stub 存在）。
  */
 export async function ensureOpenclawDependencies(openclawDir: string): Promise<void> {
   const pkgPath = join(openclawDir, 'package.json')
   if (!existsSync(pkgPath)) return
 
-  let pkg: Record<string, unknown>
+  let currentVersion: string | undefined
   try {
-    pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>
+    currentVersion = typeof pkg.version === 'string' ? pkg.version : undefined
   } catch { return }
 
-  const deps = pkg.dependencies as Record<string, string> | undefined
-  if (!deps) return
+  // 版本标记文件：记录上次成功 npm install 时的 openclaw 版本
+  const versionMarkPath = join(openclawDir, '.deps-installed-version')
+  let installedVersion: string | null = null
+  try { installedVersion = fs.readFileSync(versionMarkPath, 'utf8').trim() } catch {}
 
-  // 检查是否有依赖缺失（只检 dependencies，不含 optional/peer）
-  const missing = Object.keys(deps).filter(name => !existsSync(join(openclawDir, 'node_modules', name)))
-  if (missing.length === 0) return
+  if (installedVersion === currentVersion) return // 版本未变，跳过
 
-  logger.info(`[AutoSpawn] 检测到缺失依赖 (${missing.length} 个)，正在补全: ${missing.slice(0, 5).join(', ')}...`)
-  console.log(`[AutoSpawn] 检测到缺失依赖 (${missing.length} 个)，正在补全...`)
+  logger.info(`[AutoSpawn] openclaw 版本变化（${installedVersion ?? '无'} → ${currentVersion ?? '?'}），正在补全依赖...`)
+  console.log(`[AutoSpawn] openclaw 版本变化，正在补全依赖...`)
 
   const npmBin = getBundledNpmBin()
   const nodeDir = join(npmBin, '..')
   const args = ['install', '--omit=optional', '--omit=peer', '--omit=dev', '--ignore-scripts', '--prefer-offline']
 
-  await new Promise<void>((resolve) => {
+  const ok = await new Promise<boolean>((resolve) => {
     const child = spawn(npmBin, args, {
       cwd: openclawDir,
       windowsHide: true,
@@ -100,13 +101,18 @@ export async function ensureOpenclawDependencies(openclawDir: string): Promise<v
       } else {
         logger.warn(`[AutoSpawn] npm install 退出 code=${code}，继续启动`)
       }
-      resolve()
+      resolve(code === 0)
     })
     child.on('error', (e) => {
       logger.warn(`[AutoSpawn] npm install 失败: ${e.message}，继续启动`)
-      resolve()
+      resolve(false)
     })
   })
+
+  // 安装成功后写版本标记，下次启动同版本不再重跑
+  if (ok && currentVersion) {
+    try { fs.writeFileSync(versionMarkPath, currentVersion, 'utf8') } catch {}
+  }
 }
 
 // ── Gateway config ─────────────────────────────────────────────────────────────

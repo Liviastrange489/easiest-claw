@@ -64,6 +64,12 @@ if (process.platform === 'win32') {
 await import('./openclaw.mjs')
 `
 
+// 升级后删除的大型无用包（与 bundle-openclaw.mjs 保持同步）
+const UNUSED_LARGE_PKGS = [
+  'koffi', 'pdfjs-dist', 'node-llama-cpp', '@node-llama-cpp',
+  'playwright-core', '@playwright', 'typescript', '@cloudflare',
+]
+
 // ── 路径工具 ──────────────────────────────────────────────────────────────────
 function getOpenclawDir(): string | null {
   const candidates = app.isPackaged
@@ -73,25 +79,6 @@ function getOpenclawDir(): string | null {
     if (existsSync(join(dir, 'openclaw.mjs'))) return dir
   }
   return null
-}
-
-/** 用内置 npm 安装新增依赖（跳过 optional/peer/dev，避免触碰 git URL 依赖） */
-async function runNpmInstall(cwd: string, send: ProgressSender): Promise<boolean> {
-  const npmBin = getBundledNpmBin()
-  const nodeDir = dirname(npmBin)
-  const args = ['install', '--omit=optional', '--omit=peer', '--omit=dev', '--ignore-scripts', '--prefer-offline']
-  return new Promise<boolean>((resolve) => {
-    const child = spawn(npmBin, args, {
-      cwd,
-      windowsHide: true,
-      shell: process.platform === 'win32', // npm.cmd 是批处理文件，需要 shell
-      env: { ...process.env, PATH: `${nodeDir}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}` },
-    })
-    child.stdout?.on('data', (d: Buffer) => { const l = d.toString().trim(); if (l) send('install', 'running', l) })
-    child.stderr?.on('data', (d: Buffer) => { const l = d.toString().trim(); if (l) send('install', 'running', l) })
-    child.on('close', (code) => resolve(code === 0))
-    child.on('error', () => resolve(false))
-  })
 }
 
 // ── 版本比较（支持 YYYY.M.D 和 semver，忽略提交哈希后缀）──────────────────────
@@ -136,89 +123,57 @@ async function readCurrentVersion(): Promise<string | null> {
 // ── 升级执行 ──────────────────────────────────────────────────────────────────
 type ProgressSender = (step: string, status: 'running' | 'done' | 'error', detail?: string) => void
 
-/** 从 registry 获取指定版本的 tarball 下载 URL */
-async function fetchTarballUrl(version: string, registry: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const req = https.get(`${registry}/openclaw/${encodeURIComponent(version)}`, { timeout: 15_000 }, (res) => {
-      let data = ''
-      res.on('data', (chunk: Buffer) => { data += chunk.toString() })
-      res.on('end', () => {
-        try {
-          const meta = JSON.parse(data) as { dist?: { tarball?: string } }
-          resolve(meta.dist?.tarball ?? null)
-        } catch { resolve(null) }
-      })
-    })
-    req.on('error', () => resolve(null))
-    req.on('timeout', () => { req.destroy(); resolve(null) })
-  })
-}
-
-/** 下载文件到本地路径（支持 HTTP 重定向） */
-function downloadFile(url: string, dest: string, maxRedirects = 5): Promise<boolean> {
-  return new Promise((resolve) => {
-    const tryGet = (u: string, left: number) => {
-      https.get(u, { timeout: 120_000 }, (res) => {
-        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location && left > 0) {
-          res.resume()
-          tryGet(res.headers.location, left - 1)
-          return
-        }
-        if (res.statusCode !== 200) { res.resume(); resolve(false); return }
-        const file = fs.createWriteStream(dest)
-        res.pipe(file)
-        file.on('finish', () => { file.close(); resolve(true) })
-        file.on('error', () => resolve(false))
-      }).on('error', () => resolve(false))
-    }
-    tryGet(url, maxRedirects)
-  })
-}
-
 /**
- * 下载 tarball 并解压，返回解压后的 package/ 目录路径。
+ * 用内置 npm 在 wrapper 目录安装指定版本的 openclaw 及全部依赖。
  *
- * 策略：仅下载 + 解压，不运行 npm install。
- * 升级时直接复用现有 node_modules（见 performUpgrade），从根本上避免
- * npm 调用 git 的问题（系统无 git、git URL 依赖等）。
+ * 策略与 bundle-openclaw.mjs 完全相同：
+ *   1. 建 wrapper package.json，把 openclaw 列为 dependency，libsignal-node 用 stub override
+ *   2. 运行 `npm install openclaw@version`（先镜像源，失败再官方源）
+ *   3. 返回 wrapper 的 node_modules 目录（npm 已把 openclaw 及其全部依赖装进去）
  */
-async function downloadAndExtract(
-  version: string, registry: string, tmpDir: string, send: ProgressSender
-): Promise<string | null> {
-  send('download', 'running', `查询 ${registry} 包信息...`)
-  const tarballUrl = await fetchTarballUrl(version, registry)
-  if (!tarballUrl) {
-    send('download', 'running', `${registry} 无法获取 openclaw@${version} 信息`)
-    return null
-  }
+async function installOpenclawInWrapper(
+  version: string, wrapperDir: string, send: ProgressSender
+): Promise<boolean> {
+  // 写 libsignal-node stub（避免 git clone 失败）
+  const stubDir = join(wrapperDir, '_stubs', 'libsignal-node')
+  await fs.promises.mkdir(stubDir, { recursive: true })
+  await fs.promises.writeFile(join(stubDir, 'package.json'),
+    JSON.stringify({ name: 'libsignal-node', version: '5.0.0', main: 'index.js' }))
+  await fs.promises.writeFile(join(stubDir, 'index.js'), 'module.exports = {};\n')
+  const stubPath = stubDir.replace(/\\/g, '/')
 
-  const tgzPath = join(tmpDir, 'openclaw.tgz')
-  send('download', 'running', `正在下载 openclaw@${version}...`)
-  if (!await downloadFile(tarballUrl, tgzPath)) {
-    send('download', 'running', '下载失败')
-    return null
-  }
+  // 写 wrapper package.json
+  await fs.promises.writeFile(join(wrapperDir, 'package.json'), JSON.stringify({
+    name: '_openclaw_update',
+    version: '1.0.0',
+    private: true,
+    dependencies: { openclaw: version },
+    overrides: { 'libsignal-node': `file:${stubPath}` },
+  }, null, 2))
 
-  const extractDir = join(tmpDir, 'extracted')
-  await fs.promises.mkdir(extractDir, { recursive: true })
-  send('download', 'running', '正在解压...')
-  const extractOk = await new Promise<boolean>((resolve) => {
-    const child = spawn('tar', ['-xzf', tgzPath, '-C', extractDir], { windowsHide: true })
-    child.on('close', (code) => resolve(code === 0))
-    child.on('error', () => resolve(false))
-  })
-  if (!extractOk) {
-    send('download', 'running', 'tar 解压失败')
-    return null
-  }
+  const npmBin = getBundledNpmBin()
+  const nodeDir = dirname(npmBin)
+  const baseArgs = ['install', '--no-audit', '--no-fund', '--ignore-scripts']
+  const env = { ...process.env, PATH: `${nodeDir}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}` }
 
-  const pkgDir = join(extractDir, 'package')
-  if (!existsSync(pkgDir)) {
-    send('download', 'running', '解压结构异常，找不到 package/ 目录')
-    return null
+  for (const registry of [REGISTRY, REGISTRY_FALLBACK]) {
+    send('download', 'running', `正在从 ${registry} 安装 openclaw@${version}...`)
+    const ok = await new Promise<boolean>((resolve) => {
+      const child = spawn(npmBin, [...baseArgs, '--registry', registry], {
+        cwd: wrapperDir,
+        windowsHide: true,
+        shell: process.platform === 'win32',
+        env,
+      })
+      child.stdout?.on('data', (d: Buffer) => { const l = d.toString().trim(); if (l) send('download', 'running', l) })
+      child.stderr?.on('data', (d: Buffer) => { const l = d.toString().trim(); if (l) send('download', 'running', l) })
+      child.on('close', (code) => resolve(code === 0))
+      child.on('error', () => resolve(false))
+    })
+    if (ok) return true
+    send('download', 'running', `${registry} 安装失败，切换到下一个源...`)
   }
-
-  return pkgDir
+  return false
 }
 
 async function performUpgrade(
@@ -238,46 +193,63 @@ async function performUpgrade(
     }
     send('stop', 'done', 'Gateway 已停止')
 
-    // ── 2. 下载 tarball → 解压（不运行 npm install）──────────────────────────
-    send('download', 'running', `正在下载 openclaw@${version}...`)
-    let newSrc: string | null = null
-    for (const registry of [REGISTRY, REGISTRY_FALLBACK]) {
-      newSrc = await downloadAndExtract(version, registry, tmpDir, send)
-      if (newSrc) break
-      send('download', 'running', `${registry} 失败，切换到下一个源...`)
+    // ── 2. npm install openclaw@version（含全部依赖，libsignal stub override）──
+    // 与 bundle-openclaw.mjs 策略相同，彻底避免手动 tarball + 依赖缺失问题
+    const wrapperDir = join(tmpDir, 'wrapper')
+    await fs.promises.mkdir(wrapperDir, { recursive: true })
+    const installOk = await installOpenclawInWrapper(version, wrapperDir, send)
+    if (!installOk) {
+      send('download', 'error', '安装失败，请检查网络')
+      return { ok: false, error: '安装失败' }
     }
-    if (!newSrc) {
-      send('download', 'error', '下载失败，请检查网络')
-      return { ok: false, error: '下载失败' }
-    }
-    send('download', 'done', `openclaw@${version} 下载完成`)
+    send('download', 'done', `openclaw@${version} 安装完成`)
 
-    // ── 3. 替换源文件（保留 node_modules，step 3.5 再补全新增依赖）───────────────
-    send('install', 'running', '正在更新 OpenClaw 源文件...')
+    // ── 3. 替换源文件（保留旧 node_modules，再用新 node_modules 覆盖/补全）────
+    send('install', 'running', '正在更新 OpenClaw 文件...')
+
+    const newOpenclawSrc = join(wrapperDir, 'node_modules', 'openclaw')
+    if (!existsSync(newOpenclawSrc)) {
+      send('install', 'error', 'npm 安装结果异常，找不到 openclaw 包')
+      return { ok: false, error: 'npm 安装结果异常' }
+    }
+
+    // 替换源文件（不含 node_modules）
     const openclawEntries = await fs.promises.readdir(openclawDir)
     await Promise.all(
       openclawEntries
         .filter(entry => entry !== 'node_modules')
         .map(entry => fs.promises.rm(join(openclawDir, entry), { recursive: true, force: true }))
     )
-    const newSrcEntries = await fs.promises.readdir(newSrc)
+    const newSrcEntries = await fs.promises.readdir(newOpenclawSrc)
     await Promise.all(
       newSrcEntries
         .filter(entry => entry !== 'node_modules')
-        .map(entry => fs.promises.cp(join(newSrc, entry), join(openclawDir, entry), { recursive: true }))
+        .map(entry => fs.promises.cp(join(newOpenclawSrc, entry), join(openclawDir, entry), { recursive: true }))
     )
-    send('install', 'done', `文件更新完成，当前版本 ${version}`)
 
-    // ── 3.5. 补全新增依赖（跳过 optional/peer，不触碰 git URL 依赖）────────────
-    // 新版 openclaw 可能新增了普通 npm 依赖（如 @modelcontextprotocol/sdk），
-    // 需要用内置 npm 补装；libsignal 等 git URL 依赖已是 stub，--omit=optional 跳过。
-    send('install', 'running', '正在补全新增依赖...')
-    const npmOk = await runNpmInstall(openclawDir, send)
-    if (npmOk) {
-      send('install', 'running', '依赖补全完成')
-    } else {
-      send('install', 'running', '依赖补全未完全成功，已继续（部分新功能可能不可用）')
+    // 将新安装的依赖覆盖/写入 openclawDir/node_modules
+    const wrapperMods = join(wrapperDir, 'node_modules')
+    const newModEntries = await fs.promises.readdir(wrapperMods)
+    const targetMods = join(openclawDir, 'node_modules')
+    await fs.promises.mkdir(targetMods, { recursive: true })
+    await Promise.all(
+      newModEntries
+        .filter(e => e !== 'openclaw' && e !== '.package-lock.json')
+        .map(async e => {
+          const dest = join(targetMods, e)
+          // 先删后复制，确保版本更新
+          if (existsSync(dest)) await fs.promises.rm(dest, { recursive: true, force: true })
+          await fs.promises.cp(join(wrapperMods, e), dest, { recursive: true })
+        })
+    )
+
+    // 删除运行时不需要的大型包（与 bundle-openclaw.mjs 保持同步）
+    for (const pkg of UNUSED_LARGE_PKGS) {
+      const p = join(targetMods, pkg)
+      if (existsSync(p)) await fs.promises.rm(p, { recursive: true, force: true })
     }
+
+    send('install', 'done', `更新完成，当前版本 ${version}`)
 
     // ── 4. 写入 easiest-claw-gateway.mjs（含 pm_exec_path 修复）──────────────
     await fs.promises.writeFile(join(openclawDir, 'easiest-claw-gateway.mjs'), EASIEST_CLAW_GATEWAY_SCRIPT)
@@ -288,7 +260,6 @@ async function performUpgrade(
     if (started) {
       send('start', 'done', 'Gateway 已重启')
     } else {
-      // 90s 内未就绪也算升级成功 — Gateway 仍在启动中，自动重试会继续连接
       send('start', 'done', 'Gateway 正在后台启动，升级已完成，稍后将自动连接')
     }
 
