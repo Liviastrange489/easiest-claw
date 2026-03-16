@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react"
-import { Brain, Clock, FolderOpen, Loader2, Server, Wrench } from "lucide-react"
+import { Brain, ChevronDown, ChevronRight, Clock, FolderOpen, Loader2, Server, Wrench } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -74,11 +74,11 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
     Promise.all([
       window.ipc.agentsFilesList({ agentId: agent.id }),
       window.ipc.cronList(),
-      window.ipc.configGet(),
+      window.ipc.openclawModelsGet(),
       window.ipc.toolsCatalog({ agentId: agent.id }),
       window.ipc.agentsFilesGet({ agentId: agent.id, name: "MEMORY.md" }),
       window.ipc.agentsMemoryList({ agentId: agent.id }),
-    ]).then(([filesRes, cronRes, configRes, toolsRes, memoryRes, dailyRes]) => {
+    ]).then(([filesRes, cronRes, modelsRes, toolsRes, memoryRes, dailyRes]) => {
       if (filesRes.ok) {
         const r = filesRes.result as { workspace?: string; files?: FileEntry[] }
         setWorkspace(r.workspace ?? "")
@@ -88,11 +88,12 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
         const list = cronRes.result as { jobs: CronJob[] }
         setCronJobs((list.jobs ?? []).filter((j) => j.agentId === agent.id))
       }
-      if (configRes.ok) {
-        const cfg = configRes.result as {
-          parsed?: { models?: { defaults?: { primary?: string } } }
+      {
+        const result = modelsRes as {
+          providers?: Record<string, { models: { id: string }[] }>
+          defaults?: { primary?: string; fallbacks?: string[] }
         }
-        setDefaultModel(cfg.parsed?.models?.defaults?.primary ?? "")
+        setDefaultModel((result.defaults?.primary ?? "").trim())
       }
       if (toolsRes.ok) {
         // tools.catalog may return { tools: ToolEntry[] } or { groups: { tools: ToolEntry[] }[] }
@@ -157,27 +158,7 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
             </Section>
 
             {/* 工具 */}
-            <Section icon={<Wrench className="h-3.5 w-3.5" />} title={`工具 (${tools.length})`}>
-              {tools.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {tools.map((tool) => (
-                    <Badge
-                      key={tool.name}
-                      variant="secondary"
-                      className="text-[11px] px-1.5 py-0.5 h-auto font-mono"
-                      title={tool.description}
-                    >
-                      {tool.name}
-                      {tool.source === "plugin" && tool.pluginId && (
-                        <span className="ml-1 opacity-50 text-[9px]">plug</span>
-                      )}
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">暂无工具数据</p>
-              )}
-            </Section>
+            <CollapsibleToolsSection tools={tools} />
 
             {/* 记忆 */}
             <Section icon={<Brain className="h-3.5 w-3.5" />} title="记忆">
@@ -262,6 +243,54 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
         )}
       </SheetContent>
     </Sheet>
+  )
+}
+
+function CollapsibleToolsSection({ tools }: { tools: ToolEntry[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const previewCount = 5
+
+  return (
+    <div className="px-4 py-3">
+      <button
+        className="flex items-center gap-1.5 mb-2 w-full text-left"
+        onClick={() => setExpanded((p) => !p)}
+      >
+        {tools.length > 0 ? (
+          expanded ? (
+            <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+          ) : (
+            <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+          )
+        ) : null}
+        <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          工具 ({tools.length})
+        </h3>
+      </button>
+      {tools.length > 0 ? (
+        <div className="space-y-1">
+          {(expanded ? tools : tools.slice(0, previewCount)).map((tool) => (
+            <div key={tool.name} className="flex items-start gap-2 py-0.5">
+              <code className="text-xs font-mono text-foreground/80 shrink-0">{tool.name}</code>
+              {tool.description && (
+                <span className="text-[11px] text-muted-foreground truncate">{tool.description}</span>
+              )}
+            </div>
+          ))}
+          {!expanded && tools.length > previewCount && (
+            <button
+              className="text-[11px] text-primary hover:underline"
+              onClick={() => setExpanded(true)}
+            >
+              展开全部 {tools.length} 个工具
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">暂无工具数据</p>
+      )}
+    </div>
   )
 }
 

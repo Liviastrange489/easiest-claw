@@ -21,6 +21,7 @@
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-switch": "^1.2.6",
     "adm-zip": "^0.5.16",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

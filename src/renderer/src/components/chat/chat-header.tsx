@@ -1,6 +1,6 @@
 
 
-import { Loader2, MoreHorizontal, Trash2, Users } from "lucide-react"
+import { FolderOpen, Loader2, MoreHorizontal, Trash2, Users } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import {
@@ -38,10 +38,11 @@ import type { Conversation } from "@/types"
 interface ChatHeaderProps {
   conversation: Conversation
   onToggleMembers?: () => void
+  onToggleWorkspace?: () => void
   onAgentAvatarClick?: (agentId: string, agentName: string) => void
 }
 
-export function ChatHeader({ conversation, onToggleMembers, onAgentAvatarClick }: ChatHeaderProps) {
+export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, onAgentAvatarClick }: ChatHeaderProps) {
   const { state, dispatch, refreshFleet } = useApp()
   const { t } = useI18n()
   const [renameOpen, setRenameOpen] = useState(false)
@@ -154,6 +155,14 @@ export function ChatHeader({ conversation, onToggleMembers, onAgentAvatarClick }
             icon={<Users className="h-4 w-4" />}
             tooltip={t("header.tooltips.membersList")}
             onClick={onToggleMembers}
+          />
+        )}
+
+        {!isGroup && agent && onToggleWorkspace && (
+          <HeaderButton
+            icon={<FolderOpen className="h-4 w-4" />}
+            tooltip={t("header.tooltips.workspace")}
+            onClick={onToggleWorkspace}
           />
         )}
 

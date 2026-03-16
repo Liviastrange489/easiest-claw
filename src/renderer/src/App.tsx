@@ -12,6 +12,7 @@ import { CronView } from '@/components/cron/cron-view'
 import { OpenclawView } from '@/components/openclaw/openclaw-view'
 import { SkillsView } from '@/components/skills/skills-view'
 import { AgentConfigView } from '@/components/agent-config/agent-config-view'
+import { ChannelsView } from '@/components/channels/channels-view'
 import { PortConflictDialog } from '@/components/openclaw/port-conflict-dialog'
 import { OnboardingFlow, GatewayLoadingScreen } from '@/components/onboarding/onboarding-flow'
 import { isOnboardingDone } from '@/lib/avatar'
@@ -28,6 +29,7 @@ function MainContent() {
       case 'openclaw': return <OpenclawView />
       case 'skills': return <SkillsView />
       case 'agent-config': return <AgentConfigView />
+      case 'channels': return <ChannelsView />
       default: return <ChatView />
     }
   }

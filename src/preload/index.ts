@@ -253,6 +253,11 @@ const ipcApi = {
   providerHealthCheck: (params: { baseUrl: string; apiKey: string; api: string }) =>
     ipcRenderer.invoke('provider:health-check', params),
 
+  // ── Channels (direct file access) ────────────────────────────────────────
+  channelsGet: () => ipcRenderer.invoke('openclaw:channels:get'),
+  channelsSet: (params: { channelId: string; config: Record<string, unknown> }) =>
+    ipcRenderer.invoke('openclaw:channels:set', params),
+
   // ── File path (Electron 32+ replaces deprecated file.path) ───────────────
   getFilePath: (file: File) => webUtils.getPathForFile(file),
 }

@@ -26,7 +26,8 @@
     "openclaw": "OpenClaw",
     "settings": "Settings",
     "changeMyAvatar": "Change my avatar",
-    "changeMyAvatarDescription": "After you confirm, a file picker opens and the selected image replaces your current avatar immediately."
+    "changeMyAvatarDescription": "After you confirm, a file picker opens and the selected image replaces your current avatar immediately.",
+    "channels": "Channels"
   },
   "topNav": {
     "connection": {
@@ -180,7 +181,8 @@
       "voiceCall": "Voice call",
       "videoCall": "Video call",
       "searchMessages": "Search messages",
-      "membersList": "Member list"
+      "membersList": "Member list",
+      "workspace": "Workspace"
     },
     "menu": {
       "viewProfile": "View profile",
@@ -343,5 +345,72 @@
     "upgradeTo": "New version",
     "upgradeConfirm": "Upgrade Now",
     "upgradeSkip": "Skip for Now"
+  },
+  "windowControls": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close",
+    "closeConfirmTitle": "Confirm Exit",
+    "closeConfirmDesc": "Closing the window will stop all AI team tasks. Are you sure you want to exit?",
+    "confirmClose": "Exit"
+  },
+  "workspace": {
+    "title": "Workspace",
+    "loading": "Loading...",
+    "save": "Save",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "readonly": "Read-only",
+    "selectFile": "Select a file to view",
+    "emptyFile": "File is empty. Type something and save.",
+    "emptyMemory": "No content"
+  },
+  "channels": {
+    "title": "Channels",
+    "description": "Configure external messaging channels (Feishu, Telegram, etc.) to connect your AI team to more platforms",
+    "loading": "Loading...",
+    "loadFailed": "Failed to load channel config",
+    "save": "Save",
+    "saveSuccess": "Channel config saved",
+    "saveFailed": "Save failed",
+    "restartHint": "Restart OpenClaw for changes to take effect",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "requiredFields": "Required",
+    "optionalFields": "Optional",
+    "dmPolicy": "DM Policy",
+    "groupPolicy": "Group Policy",
+    "policy": {
+      "pairing": "Pairing",
+      "open": "Open",
+      "allowlist": "Allowlist",
+      "disabled": "Disabled"
+    },
+    "feishu": {
+      "name": "Feishu",
+      "desc": "Feishu / Lark Bot",
+      "appIdRequired": "App ID is required",
+      "appSecretRequired": "App Secret is required",
+      "appSecretPlaceholder": "From Feishu Open Platform",
+      "setupHint": "Go to open.feishu.cn/app to create an app and get App ID & App Secret. WebSocket connection is recommended.",
+      "botName": "Bot Name",
+      "botNamePlaceholder": "Display name in messages",
+      "domain": "Platform",
+      "domainFeishu": "Feishu (China)",
+      "domainLark": "Lark (Global)",
+      "connectionMode": "Connection Mode"
+    },
+    "telegram": {
+      "name": "Telegram",
+      "desc": "Telegram Bot",
+      "botTokenRequired": "Bot Token is required",
+      "setupHint": "Find @BotFather on Telegram, send /newbot to create a bot and get the token.",
+      "streaming": "Streaming",
+      "streamingOff": "Off",
+      "streamingPartial": "Partial (Recommended)",
+      "streamingBlock": "Block",
+      "streamingProgress": "Progress"
+    }
   }
 }

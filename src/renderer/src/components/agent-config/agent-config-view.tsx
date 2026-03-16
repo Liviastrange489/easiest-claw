@@ -134,7 +134,64 @@ function parseSessions(raw: unknown): AgentSession[] {
 
 // ── Overview Tab ──────────────────────────────────────────────────────────────
 
+type OverviewFileEntry = {
+  name: string
+  missing: boolean
+  size?: number
+}
+
+type OverviewToolEntry = {
+  name: string
+  description?: string
+  source?: string
+  pluginId?: string
+}
+
 function OverviewTab({ agent, cronCount, sessionCount }: { agent: Agent; cronCount: number; sessionCount: number }) {
+  const [workspace, setWorkspace] = useState("")
+  const [files, setFiles] = useState<OverviewFileEntry[]>([])
+  const [defaultModel, setDefaultModel] = useState("")
+  const [tools, setTools] = useState<OverviewToolEntry[]>([])
+  const [memorySummary, setMemorySummary] = useState("")
+  const [dailyMemoryCount, setDailyMemoryCount] = useState(0)
+  const [overviewLoading, setOverviewLoading] = useState(true)
+
+  useEffect(() => {
+    setOverviewLoading(true)
+    Promise.all([
+      window.ipc.agentsFilesList({ agentId: agent.id }),
+      window.ipc.openclawModelsGet(),
+      window.ipc.toolsCatalog({ agentId: agent.id }),
+      window.ipc.agentsFilesGet({ agentId: agent.id, name: "MEMORY.md" }),
+      window.ipc.agentsMemoryList({ agentId: agent.id }),
+    ]).then(([filesRes, modelsRes, toolsRes, memoryRes, dailyRes]) => {
+      if (filesRes.ok) {
+        const r = filesRes.result as { workspace?: string; files?: OverviewFileEntry[] }
+        setWorkspace(r.workspace ?? "")
+        setFiles(r.files ?? [])
+      }
+      {
+        const result = modelsRes as {
+          providers?: Record<string, { models: { id: string }[] }>
+          defaults?: { primary?: string; fallbacks?: string[] }
+        }
+        setDefaultModel((result.defaults?.primary ?? "").trim())
+      }
+      if (toolsRes.ok) {
+        const r = toolsRes.result as { tools?: OverviewToolEntry[]; groups?: Array<{ tools?: OverviewToolEntry[] }> }
+        if (Array.isArray(r.tools)) setTools(r.tools)
+        else if (Array.isArray(r.groups)) setTools(r.groups.flatMap((g) => g.tools ?? []))
+      }
+      if (memoryRes.ok) {
+        const content = (memoryRes.result as { file?: { content?: string } })?.file?.content ?? ""
+        setMemorySummary(content.slice(0, 200))
+      }
+      if (dailyRes.ok) {
+        setDailyMemoryCount((dailyRes as { ok: true; files: unknown[] }).files?.length ?? 0)
+      }
+    }).finally(() => setOverviewLoading(false))
+  }, [agent.id])
+
   return (
     <div className="h-full overflow-y-auto px-6 py-5 space-y-5">
       {/* Stats row */}
@@ -185,6 +242,11 @@ function OverviewTab({ agent, cronCount, sessionCount }: { agent: Agent; cronCou
           <span>{agent.role || "—"}</span>
         </div>
 
+        <div className="flex items-center gap-3">
+          <span className="w-20 shrink-0 text-muted-foreground text-xs">模型</span>
+          <span className="font-mono text-xs">{overviewLoading ? "…" : (defaultModel || "—")}</span>
+        </div>
+
         {agent.lastActiveAt && (
           <div className="flex items-center gap-3">
             <span className="w-20 shrink-0 text-muted-foreground text-xs">最近活跃</span>
@@ -192,8 +254,102 @@ function OverviewTab({ agent, cronCount, sessionCount }: { agent: Agent; cronCou
           </div>
         )}
       </div>
+
+      {overviewLoading ? (
+        <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />加载中...
+        </div>
+      ) : (
+        <>
+          {/* 工作空间 */}
+          <Separator />
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                工作空间
+              </h3>
+            </div>
+            {workspace && (
+              <p className="text-[11px] text-muted-foreground font-mono break-all mb-2" title={workspace}>
+                {workspace}
+              </p>
+            )}
+            {files.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                {files.map((file) => (
+                  <div key={file.name} className="flex items-center justify-between gap-2 py-0.5">
+                    <span className="text-xs font-mono text-foreground/80 truncate">{file.name}</span>
+                    {file.missing ? (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 text-yellow-600 border-yellow-400 shrink-0">!</Badge>
+                    ) : file.size != null ? (
+                      <span className="text-[10px] text-muted-foreground shrink-0">{formatSize(file.size)}</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">暂无文件</p>
+            )}
+          </div>
+
+          {/* 工具 */}
+          {tools.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Zap className="h-3.5 w-3.5 text-muted-foreground" />
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    工具 ({tools.length})
+                  </h3>
+                </div>
+                <div className="space-y-1">
+                  {tools.map((tool) => (
+                    <div key={tool.name} className="flex items-start gap-2 py-0.5">
+                      <code className="text-xs font-mono text-foreground/80 shrink-0">{tool.name}</code>
+                      {tool.description && (
+                        <span className="text-[11px] text-muted-foreground truncate">{tool.description}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* 记忆摘要 */}
+          {(memorySummary || dailyMemoryCount > 0) && (
+            <>
+              <Separator />
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Brain className="h-3.5 w-3.5 text-muted-foreground" />
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    记忆
+                  </h3>
+                </div>
+                {memorySummary && (
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-4 leading-relaxed mb-1.5">
+                    {memorySummary}{memorySummary.length >= 200 ? "…" : ""}
+                  </p>
+                )}
+                {dailyMemoryCount > 0 && (
+                  <p className="text-[11px] text-muted-foreground/70">{dailyMemoryCount} 条每日记忆</p>
+                )}
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   )
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 // ── Sessions Tab ──────────────────────────────────────────────────────────────

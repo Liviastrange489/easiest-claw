@@ -85,4 +85,4 @@ export interface ChatAttachment {
   fileName?: string
 }
 
-export type ViewType = "chat" | "virtual-team" | "cron" | "openclaw" | "skills" | "agent-config"
+export type ViewType = "chat" | "virtual-team" | "cron" | "openclaw" | "skills" | "agent-config" | "channels"

@@ -26,7 +26,8 @@
     "openclaw": "OpenClaw",
     "settings": "设置",
     "changeMyAvatar": "更换个人头像",
-    "changeMyAvatarDescription": "确认后将打开文件选择器，选择图片后会立即替换当前头像。"
+    "changeMyAvatarDescription": "确认后将打开文件选择器，选择图片后会立即替换当前头像。",
+    "channels": "渠道"
   },
   "topNav": {
     "connection": {
@@ -180,7 +181,8 @@
       "voiceCall": "语音通话",
       "videoCall": "视频通话",
       "searchMessages": "搜索聊天记录",
-      "membersList": "成员列表"
+      "membersList": "成员列表",
+      "workspace": "工作空间"
     },
     "menu": {
       "viewProfile": "查看资料",
@@ -343,5 +345,72 @@
     "upgradeTo": "新版本",
     "upgradeConfirm": "立即升级",
     "upgradeSkip": "暂时跳过"
+  },
+  "windowControls": {
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "restore": "还原",
+    "close": "关闭",
+    "closeConfirmTitle": "确认退出",
+    "closeConfirmDesc": "关闭窗口将同时停止所有 AI 团队任务，确定要退出吗？",
+    "confirmClose": "退出"
+  },
+  "workspace": {
+    "title": "工作空间",
+    "loading": "加载中...",
+    "save": "保存",
+    "saved": "已保存",
+    "saveFailed": "保存失败",
+    "readonly": "只读",
+    "selectFile": "选择文件查看内容",
+    "emptyFile": "文件为空，输入内容后点击保存",
+    "emptyMemory": "暂无内容"
+  },
+  "channels": {
+    "title": "渠道管理",
+    "description": "配置外部消息渠道（飞书、Telegram 等），让 AI 团队接入更多平台",
+    "loading": "加载中...",
+    "loadFailed": "加载渠道配置失败",
+    "save": "保存配置",
+    "saveSuccess": "渠道配置已保存",
+    "saveFailed": "保存失败",
+    "restartHint": "保存后需重启 OpenClaw 使配置生效",
+    "enabled": "已启用",
+    "disabled": "已停用",
+    "requiredFields": "必填配置",
+    "optionalFields": "可选配置",
+    "dmPolicy": "私聊策略",
+    "groupPolicy": "群聊策略",
+    "policy": {
+      "pairing": "配对模式",
+      "open": "开放",
+      "allowlist": "白名单",
+      "disabled": "禁用"
+    },
+    "feishu": {
+      "name": "飞书",
+      "desc": "飞书 / Lark 机器人",
+      "appIdRequired": "请填写 App ID",
+      "appSecretRequired": "请填写 App Secret",
+      "appSecretPlaceholder": "从飞书开放平台获取",
+      "setupHint": "前往 open.feishu.cn/app 创建应用，获取 App ID 和 App Secret。连接方式推荐 WebSocket。",
+      "botName": "机器人名称",
+      "botNamePlaceholder": "显示在消息中的名称",
+      "domain": "平台",
+      "domainFeishu": "飞书（中国）",
+      "domainLark": "Lark（国际）",
+      "connectionMode": "连接方式"
+    },
+    "telegram": {
+      "name": "Telegram",
+      "desc": "Telegram Bot",
+      "botTokenRequired": "请填写 Bot Token",
+      "setupHint": "在 Telegram 中找 @BotFather，发送 /newbot 创建机器人并获取 Token。",
+      "streaming": "流式输出",
+      "streamingOff": "关闭",
+      "streamingPartial": "部分（推荐）",
+      "streamingBlock": "分块",
+      "streamingProgress": "进度条"
+    }
   }
 }

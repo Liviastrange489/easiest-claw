@@ -12,6 +12,7 @@ import { MessageInput } from "./message-input"
 import { TypingIndicator } from "./typing-indicator"
 import { GroupMembersPanel } from "./group-members-panel"
 import { PersonaPanel } from "@/components/persona/persona-panel"
+import { WorkspacePanel } from "./workspace-panel"
 import { useI18n } from "@/i18n"
 import type { Message } from "@/types"
 
@@ -62,6 +63,7 @@ export function ChatWindow() {
   const { t } = useI18n()
   useAvatarVersion() // re-render when avatar changes
   const [showMembers, setShowMembers] = useState(false)
+  const [showWorkspace, setShowWorkspace] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [personaPanelOpen, setPersonaPanelOpen] = useState(false)
   const [personaAgentId, setPersonaAgentId] = useState("")
@@ -232,6 +234,7 @@ export function ChatWindow() {
         <ChatHeader
           conversation={conversation}
           onToggleMembers={isGroup ? () => setShowMembers((p) => !p) : undefined}
+          onToggleWorkspace={!isGroup ? () => setShowWorkspace((p) => !p) : undefined}
           onAgentAvatarClick={handleAgentAvatarClick}
         />
 
@@ -305,6 +308,14 @@ export function ChatWindow() {
           conversation={conversation}
           open={showMembers}
           onOpenChange={setShowMembers}
+        />
+      )}
+
+      {!isGroup && conversation.members[0] && (
+        <WorkspacePanel
+          agentId={conversation.members[0]}
+          open={showWorkspace}
+          onOpenChange={setShowWorkspace}
         />
       )}
 
