@@ -13,6 +13,7 @@ import { createRequire } from 'module'
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { isRecord, readOpenclawConfig, writeOpenclawConfig } from './lib/openclaw-config'
+import { getDataDir } from './lib/data-dir'
 import { logger } from './lib/logger'
 
 // ── 解压状态（IPC 查询用）─────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ export async function extractOpenClawIfNeeded(
   // zip 内部路径自带 `openclaw/` 前缀（如 openclaw/openclaw.mjs），
   // 所以 adm-zip extractEntryTo 的目标应传 userData 根目录（extractRoot），
   // 解压后自动形成 userData/openclaw/... 结构。
-  const extractRoot = app.getPath('userData')
+  const extractRoot = getDataDir()
   const destDir = join(extractRoot, 'openclaw')
   const markerPath = join(extractRoot, '.openclaw-version')
 

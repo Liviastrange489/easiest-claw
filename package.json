@@ -124,6 +124,7 @@
       "uninstallerIcon": "resources/icon.ico",
       "installerHeaderIcon": "resources/icon.ico",
       "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
       "allowElevation": true,
       "perMachine": false,
       "include": "resources/installer.nsh"

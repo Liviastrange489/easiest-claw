@@ -44,12 +44,14 @@
       "models": "模型配置",
       "gateway": "网关",
       "language": "语言",
+      "storage": "存储",
       "community": "社区"
     },
     "descriptions": {
       "models": "添加 AI 模型服务商，配置可用模型",
       "gateway": "配置 OpenClaw 网关连接地址和访问凭证",
       "language": "默认跟随浏览器语言，也可以手动切换",
+      "storage": "自定义数据存储位置，避免占满系统盘空间",
       "community": "加入官方微信群，获取最新动态和技术支持"
     },
     "community": {
@@ -63,6 +65,17 @@
       "systemDescription": "首次打开时自动采用浏览器默认语言",
       "zh": "中文",
       "en": "English"
+    },
+    "storage": {
+      "currentDir": "当前数据目录",
+      "default": "默认",
+      "change": "更改",
+      "restoreDefault": "恢复默认",
+      "restartHint": "更改数据目录后需重启应用生效，新位置需要重新解压 OpenClaw（约 1-2 分钟）",
+      "selectFolder": "请选择数据存储目录",
+      "saved": "已保存，请重启应用生效",
+      "restored": "已恢复默认，请重启应用生效",
+      "failed": "保存失败"
     }
   },
   "conversationList": {

@@ -1,6 +1,8 @@
 import type { IpcMain } from 'electron'
+import { app } from 'electron'
 import { loadSettings, patchSettings, loadOpenclawDefaults } from '../gateway/settings'
 import { restartRuntime } from '../gateway/runtime'
+import { getDataDir } from '../lib/data-dir'
 
 export const registerSettingsHandlers = (ipcMain: IpcMain): void => {
   // Load current app settings (gateway URL/token, avatars)
@@ -51,5 +53,25 @@ export const registerSettingsHandlers = (ipcMain: IpcMain): void => {
   ipcMain.handle('settings:detect-local', async () => {
     const defaults = loadOpenclawDefaults()
     return defaults ?? null
+  })
+
+  // ── 数据存储目录 ───────────────────────────────────────────────────────────────
+
+  ipcMain.handle('settings:get-data-dir', async () => {
+    const current = getDataDir()
+    const defaultDir = app.getPath('userData')
+    return { dir: current, isCustom: current !== defaultDir, defaultDir }
+  })
+
+  ipcMain.handle('settings:set-data-dir', async (_event, params: { dir: string }) => {
+    const dir = params.dir?.trim()
+    if (!dir) return { ok: false, error: 'dir is required' }
+    patchSettings({ customDataDir: dir })
+    return { ok: true, needRestart: true }
+  })
+
+  ipcMain.handle('settings:reset-data-dir', async () => {
+    patchSettings({ customDataDir: undefined })
+    return { ok: true, needRestart: true }
   })
 }

@@ -44,12 +44,14 @@
       "models": "Model Config",
       "gateway": "Gateway",
       "language": "Language",
+      "storage": "Storage",
       "community": "Community"
     },
     "descriptions": {
       "models": "Add AI providers and configure available models",
       "gateway": "Configure OpenClaw gateway connection URL and access token",
       "language": "Follow the browser language by default, with manual override available",
+      "storage": "Customize data storage location to save system drive space",
       "community": "Join the official WeChat group for updates and support"
     },
     "community": {
@@ -63,6 +65,17 @@
       "systemDescription": "Use your browser's preferred language on first visit",
       "zh": "中文",
       "en": "English"
+    },
+    "storage": {
+      "currentDir": "Current data directory",
+      "default": "Default",
+      "change": "Change",
+      "restoreDefault": "Restore default",
+      "restartHint": "Changing the data directory requires an app restart. OpenClaw will need to be re-extracted at the new location (~1-2 minutes).",
+      "selectFolder": "Select data storage folder",
+      "saved": "Saved. Please restart the app.",
+      "restored": "Restored to default. Please restart the app.",
+      "failed": "Failed to save"
     }
   },
   "conversationList": {

@@ -37,9 +37,13 @@ export const getBundledNodeBin = _getBundledNodeBin
 export const getBundledNpmBin = _getBundledNpmBin
 
 /**
- * 确保 openclaw 的依赖已安装。版本感知：openclaw 版本变化（如 in-app 升级后）就重新安装。
- * 修复"程序内升级后 node_modules 未补全"导致的 ERR_MODULE_NOT_FOUND。
- * --omit=optional/peer 跳过 libsignal 等 git URL 依赖（已作为 stub 存在）。
+ * 确保 openclaw 的依赖已就绪。
+ *
+ * 打包好的 zip 解压后已包含完整的 node_modules（含正确版本的 @mariozechner/* 等），
+ * 此时只需写入版本标记即可，**不应**运行 npm install（会按 package.json 声明的版本
+ * 重新安装依赖，可能覆盖掉 bundle 时精心匹配的版本，导致 SyntaxError）。
+ *
+ * 仅当 node_modules 目录不存在或为空时（极端边界情况）才回退执行 npm install。
  */
 export async function ensureOpenclawDependencies(openclawDir: string): Promise<void> {
   const pkgPath = join(openclawDir, 'package.json')
@@ -51,15 +55,33 @@ export async function ensureOpenclawDependencies(openclawDir: string): Promise<v
     currentVersion = typeof pkg.version === 'string' ? pkg.version : undefined
   } catch { return }
 
-  // 版本标记文件：记录上次成功 npm install 时的 openclaw 版本
+  // 版本标记文件：记录上次依赖就绪时的 openclaw 版本
   const versionMarkPath = join(openclawDir, '.deps-installed-version')
   let installedVersion: string | null = null
   try { installedVersion = (await fs.promises.readFile(versionMarkPath, 'utf8')).trim() } catch {}
 
   if (installedVersion === currentVersion) return // 版本未变，跳过
 
-  logger.info(`[AutoSpawn] openclaw version changed (${installedVersion ?? 'none'} -> ${currentVersion ?? '?'}), installing deps...`)
-  console.log('[AutoSpawn] version changed, installing deps...')
+  // 检查 node_modules 是否已存在且非空（zip 解压提供）
+  const nodeModulesDir = join(openclawDir, 'node_modules')
+  let nodeModulesReady = false
+  try {
+    const entries = await fs.promises.readdir(nodeModulesDir)
+    nodeModulesReady = entries.length > 0
+  } catch { /* 目录不存在 */ }
+
+  if (nodeModulesReady) {
+    // zip 解压已提供完整依赖，直接写版本标记，跳过 npm install
+    logger.info(`[AutoSpawn] node_modules already present (zip-extracted), marking version ${currentVersion ?? '?'}`)
+    if (currentVersion) {
+      try { await fs.promises.writeFile(versionMarkPath, currentVersion, 'utf8') } catch {}
+    }
+    return
+  }
+
+  // node_modules 不存在或为空 — 回退执行 npm install
+  logger.info(`[AutoSpawn] node_modules missing, installing deps (${installedVersion ?? 'none'} -> ${currentVersion ?? '?'})...`)
+  console.log('[AutoSpawn] node_modules missing, installing deps...')
 
   const npmBin = getBundledNpmBin()
   const nodeDir = join(npmBin, '..')
@@ -90,7 +112,6 @@ export async function ensureOpenclawDependencies(openclawDir: string): Promise<v
     })
   })
 
-  // 安装成功后写版本标记，下次启动同版本不再重跑
   if (ok && currentVersion) {
     try { await fs.promises.writeFile(versionMarkPath, currentVersion, 'utf8') } catch {}
   }

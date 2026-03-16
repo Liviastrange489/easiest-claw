@@ -168,6 +168,11 @@ const ipcApi = {
   settingsSaveAvatar: (params: { gatewayUrl: string; agentId: string; seed: string }) =>
     ipcRenderer.invoke('settings:save-avatar', params),
   settingsDetectLocal: () => ipcRenderer.invoke('settings:detect-local'),
+  settingsGetDataDir: (): Promise<{ dir: string; isCustom: boolean; defaultDir: string }> =>
+    ipcRenderer.invoke('settings:get-data-dir'),
+  settingsSetDataDir: (params: { dir: string }) =>
+    ipcRenderer.invoke('settings:set-data-dir', params),
+  settingsResetDataDir: () => ipcRenderer.invoke('settings:reset-data-dir'),
 
   // ── Direct file access for model config (bypasses gateway validation) ──────
   openclawModelsGet: () => ipcRenderer.invoke('openclaw:models:get'),

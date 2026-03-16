@@ -1,7 +1,7 @@
 
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Brain, Check, Languages, Info, Server, RefreshCw, Download, CheckCircle2, Loader2, FolderOpen, Copy, CheckCheck } from "lucide-react"
+import { ArrowLeft, Brain, Check, Languages, Info, Server, RefreshCw, Download, CheckCircle2, Loader2, FolderOpen, Copy, CheckCheck, HardDrive, AlertTriangle } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -24,14 +24,15 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-type SettingsSection = "models" | "gateway" | "language" | "about"
+type SettingsSection = "models" | "gateway" | "storage" | "language" | "about"
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t } = useI18n()
   const [activeSection, setActiveSection] = useState<SettingsSection>("models")
-  const navItems: { id: SettingsSection; label: string; icon: typeof Brain | typeof Languages | typeof Info | typeof Server }[] = [
+  const navItems: { id: SettingsSection; label: string; icon: typeof Brain }[] = [
     { id: "models", label: t("settings.sections.models"), icon: Brain },
     { id: "gateway", label: t("settings.sections.gateway"), icon: Server },
+    { id: "storage", label: t("settings.sections.storage"), icon: HardDrive },
     { id: "language", label: t("settings.sections.language"), icon: Languages },
     { id: "about", label: "关于", icon: Info },
   ]
@@ -94,12 +95,18 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   {t("settings.descriptions.gateway")}
                 </p>
               )}
+              {activeSection === "storage" && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {t("settings.descriptions.storage")}
+                </p>
+              )}
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="px-5 py-4">
                 {activeSection === "models" && <ModelConfigPanel />}
                 {activeSection === "gateway" && <GatewayConfigPanel />}
+                {activeSection === "storage" && <StoragePanel />}
                 {activeSection === "language" && <LanguageSettingsPanel />}
                 {activeSection === "about" && <AboutPanel />}
               </div>
@@ -108,6 +115,86 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function StoragePanel() {
+  const { t } = useI18n()
+  const [dataDirInfo, setDataDirInfo] = useState<{ dir: string; isCustom: boolean; defaultDir: string } | null>(null)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    window.ipc.settingsGetDataDir().then(setDataDirInfo)
+  }, [])
+
+  const handleChange = async () => {
+    const result = await window.ipc.selectDirectory() as { ok: boolean; path?: string }
+    if (!result.ok || !result.path) return
+    const saveResult = await window.ipc.settingsSetDataDir({ dir: result.path }) as { ok: boolean; error?: string }
+    if (saveResult.ok) {
+      setDataDirInfo({ dir: result.path, isCustom: true, defaultDir: dataDirInfo?.defaultDir ?? '' })
+      setMessage({ type: 'success', text: t("settings.storage.saved") })
+    } else {
+      setMessage({ type: 'error', text: saveResult.error ?? t("settings.storage.failed") })
+    }
+  }
+
+  const handleRestore = async () => {
+    const result = await window.ipc.settingsResetDataDir() as { ok: boolean }
+    if (result.ok) {
+      setDataDirInfo(prev => prev ? { ...prev, dir: prev.defaultDir, isCustom: false } : null)
+      setMessage({ type: 'success', text: t("settings.storage.restored") })
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Current directory */}
+      <div className="rounded-lg border bg-muted/20 px-4 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">{t("settings.storage.currentDir")}</span>
+          {dataDirInfo && !dataDirInfo.isCustom && (
+            <span className="text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground">
+              {t("settings.storage.default")}
+            </span>
+          )}
+        </div>
+        <p className="text-xs font-mono text-foreground/80 break-all leading-relaxed">
+          {dataDirInfo?.dir ?? <span className="text-muted-foreground/50 animate-pulse">…</span>}
+        </p>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={handleChange} className="gap-2">
+          <FolderOpen className="h-3.5 w-3.5" />
+          {t("settings.storage.change")}
+        </Button>
+        {dataDirInfo?.isCustom && (
+          <Button variant="ghost" size="sm" onClick={handleRestore}>
+            {t("settings.storage.restoreDefault")}
+          </Button>
+        )}
+      </div>
+
+      {/* Restart hint */}
+      <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/30 px-4 py-3">
+        <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-500 mt-0.5 shrink-0" />
+        <p className="text-xs text-yellow-800 dark:text-yellow-200">{t("settings.storage.restartHint")}</p>
+      </div>
+
+      {/* Feedback message */}
+      {message && (
+        <div className={cn(
+          "rounded-lg border px-4 py-2.5 text-sm",
+          message.type === 'success'
+            ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/30 dark:text-green-200"
+            : "border-destructive/30 bg-destructive/5 text-destructive"
+        )}>
+          {message.text}
+        </div>
+      )}
+    </div>
   )
 }
 

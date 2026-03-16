@@ -9,17 +9,18 @@
 import { app } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
+import { getDataDir } from './data-dir'
 
 // ── OpenClaw 目录查找 ───────────────────────────────────────────────────────────
 
 /**
  * 返回可能存在的 openclaw 目录候选列表（按优先级排序）。
- * - 打包版：优先查 userData（解压目标），回退 resources（旧版兼容）
+ * - 打包版：优先查 dataDir（用户自定义或默认 userData），回退 resources（旧版兼容）
  * - 开发版：build/openclaw/
  */
 export function getOpenclawCandidates(): string[] {
   return app.isPackaged
-    ? [join(app.getPath('userData'), 'openclaw'), join(process.resourcesPath, 'openclaw')]
+    ? [join(getDataDir(), 'openclaw'), join(process.resourcesPath, 'openclaw')]
     : [join(app.getAppPath(), 'build', 'openclaw')]
 }
 
