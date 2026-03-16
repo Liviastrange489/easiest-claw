@@ -7,6 +7,7 @@ import { registerAllIpcHandlers } from './ipc'
 import { startRuntime, stopRuntime } from './gateway/runtime'
 import { autoSpawnBundledOpenclaw, addGatewayLogListener, getGatewayLogBuffer } from './gateway/bundled-process'
 import { extractOpenClawIfNeeded, getExtractState, confirmUpgrade, skipUpgrade } from './openclaw-init'
+import { migrateDataDirIfNeeded } from './lib/data-dir'
 import { logger } from './lib/logger'
 import { FIREWALL_RULE_NAME, APP_ID } from '@shared/branding'
 import { initAppUpdater, registerAppUpdaterHandlers } from './app-updater'
@@ -137,6 +138,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('openclaw:upgrade-skip', () => { skipUpgrade() })
   // Gateway 日志缓冲（供渲染层切换页面回来时恢复日志面板）
   ipcMain.handle('gateway:logs-get', () => getGatewayLogBuffer())
+
+  // 数据目录迁移（在解压前执行，避免解压到旧位置）
+  await migrateDataDirIfNeeded()
 
   // 防火墙规则 + 解压并行执行：两者互不依赖，无需串行等待。
   // 防火墙规则需在 gateway 监听端口前完成（否则触发弹窗），
