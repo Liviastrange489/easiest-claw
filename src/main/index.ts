@@ -1,7 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { spawn } from 'child_process'
-import { existsSync, writeFileSync } from 'fs'
+import { existsSync, writeFileSync, readFileSync, mkdirSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllIpcHandlers } from './ipc'
 import { startRuntime, stopRuntime } from './gateway/runtime'
@@ -34,6 +34,52 @@ async function ensureFirewallRule(): Promise<void> {
     // 超时保护：5 秒内没有响应就放弃（不阻塞启动）
     setTimeout(() => { try { child.kill() } catch { /* ignore */ } resolve() }, 5000)
   })
+}
+
+// ── 首次启动：选择数据目录 ────────────────────────────────────────────────────
+async function checkAndPromptDataLocation(): Promise<void> {
+  const settingsFile = join(app.getPath('userData'), 'settings.json')
+  let settings: Record<string, unknown> = {}
+
+  if (existsSync(settingsFile)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsFile, 'utf8')) as Record<string, unknown>
+    } catch {}
+  }
+
+  // 已选择过数据目录，跳过
+  if (settings.dataLocationSelected) return
+
+  const result = await dialog.showMessageBox({
+    type: 'question',
+    title: '选择数据存储位置',
+    message: '首次启动需要选择数据存储位置',
+    detail: 'OpenClaw 运行时数据约 500MB，建议选择空间充足的磁盘。\n\n点击"选择目录"可自定义位置，点击"使用默认"将数据存储在系统默认位置。',
+    buttons: ['选择目录', '使用默认'],
+    defaultId: 0,
+    cancelId: 1
+  })
+
+  if (result.response === 0) {
+    const dirResult = await dialog.showOpenDialog({
+      title: '选择数据存储目录',
+      defaultPath: app.getPath('home'),
+      properties: ['openDirectory', 'createDirectory']
+    })
+
+    if (!dirResult.canceled && dirResult.filePaths[0]) {
+      const customDir = dirResult.filePaths[0]
+      try {
+        mkdirSync(customDir, { recursive: true })
+        settings.customDataDir = customDir
+      } catch {}
+    }
+  }
+
+  settings.dataLocationSelected = true
+  try {
+    writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8')
+  } catch {}
 }
 
 // ── 单实例锁 ──────────────────────────────────────────────────────────────────
@@ -138,6 +184,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('openclaw:upgrade-skip', () => { skipUpgrade() })
   // Gateway 日志缓冲（供渲染层切换页面回来时恢复日志面板）
   ipcMain.handle('gateway:logs-get', () => getGatewayLogBuffer())
+
+  // 首次启动：选择数据目录
+  await checkAndPromptDataLocation()
 
   // 数据目录迁移（在解压前执行，避免解压到旧位置）
   await migrateDataDirIfNeeded()
