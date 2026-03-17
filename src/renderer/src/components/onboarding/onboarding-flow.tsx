@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 // 剥离 ANSI 颜色/控制转义码，避免日志乱码
 const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
@@ -519,6 +519,10 @@ function ModelCheckStep({ onDone, onOpenSettings }: { onDone: () => void; onOpen
   const [checking, setChecking] = useState(true)
   const [configured, setConfigured] = useState(false)
 
+  // 用 ref 持有最新的 onDone，避免 onDone 引用变化触发 useEffect 重复执行
+  const onDoneRef = useRef(onDone)
+  onDoneRef.current = onDone
+
   const checkModels = useCallback(async () => {
     setChecking(true)
     try {
@@ -529,10 +533,13 @@ function ModelCheckStep({ onDone, onOpenSettings }: { onDone: () => void; onOpen
         const hasPrimary = !!result.defaults?.primary
         if (hasProviders && hasPrimary) {
           setConfigured(true)
+          setChecking(false)
           return true
         }
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[ModelCheckStep] checkModels failed:', err)
+    }
     setConfigured(false)
     setChecking(false)
     return false
@@ -540,16 +547,16 @@ function ModelCheckStep({ onDone, onOpenSettings }: { onDone: () => void; onOpen
 
   useEffect(() => {
     checkModels().then((ok) => {
-      if (ok) onDone()
+      if (ok) onDoneRef.current()
     })
-  }, [checkModels, onDone])
+  }, [checkModels])
 
   // Re-check when settings dialog closes
   const recheck = useCallback(() => {
     checkModels().then((ok) => {
-      if (ok) onDone()
+      if (ok) onDoneRef.current()
     })
-  }, [checkModels, onDone])
+  }, [checkModels])
 
   // Expose recheck for parent to call after settings close
   useEffect(() => {
@@ -557,7 +564,7 @@ function ModelCheckStep({ onDone, onOpenSettings }: { onDone: () => void; onOpen
     return () => { delete (window as unknown as Record<string, unknown>).__modelCheckRecheck }
   }, [recheck])
 
-  if (checking && !configured) {
+  if (checking) {
     return (
       <div className="flex items-center justify-center">
         <Loader2 className="h-8 w-8 text-primary animate-spin" />
@@ -565,7 +572,14 @@ function ModelCheckStep({ onDone, onOpenSettings }: { onDone: () => void; onOpen
     )
   }
 
-  if (configured) return null
+  // 模型已配置时也显示 spinner（onDone 会很快切走整个 onboarding）
+  if (configured) {
+    return (
+      <div className="flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 text-center">

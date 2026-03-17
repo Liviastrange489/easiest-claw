@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { Component, useCallback, useEffect, useState } from 'react'
+import type { ErrorInfo, ReactNode } from 'react'
 import { useApp } from '@/store/app-context'
 import { AppProvider } from '@/store/app-context'
 import { LanguageProvider } from '@/i18n'
@@ -55,9 +56,13 @@ function AppRoot() {
     if (state.gatewayConnected && !everConnected) setEverConnected(true)
   }, [state.gatewayConnected, everConnected])
 
+  // 稳定引用，避免 gateway 事件导致 AppRoot re-render 时传给 OnboardingFlow 的 onDone 引用变化，
+  // 进而触发 ModelCheckStep 内 useEffect 反复执行 checkModels
+  const handleOnboardingDone = useCallback(() => setOnboardingDone(true), [])
+
   // 新用户：走完整 onboarding（gateway loading → profile setup）
   if (!onboardingDone) {
-    return <OnboardingFlow onDone={() => setOnboardingDone(true)} />
+    return <OnboardingFlow onDone={handleOnboardingDone} />
   }
 
   // 老用户：未连接过 → 显示启动封面（品牌 Logo + 连接进度 + 日志）
@@ -68,6 +73,48 @@ function AppRoot() {
   return <MainContent />
 }
 
+// ── ErrorBoundary: 防止未捕获的 React 错误导致白屏 ──────────────────────────
+
+interface ErrorBoundaryState {
+  error: Error | null
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('[AppErrorBoundary]', error, info.componentStack)
+  }
+
+  render(): ReactNode {
+    if (this.state.error) {
+      return (
+        <div className="h-screen flex items-center justify-center bg-background p-8">
+          <div className="max-w-md text-center space-y-4">
+            <h2 className="text-lg font-semibold text-destructive">Something went wrong</h2>
+            <p className="text-sm text-muted-foreground break-all">{this.state.error.message}</p>
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ error: null })
+                window.location.reload()
+              }}
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App() {
   useAppUpdate()
 
@@ -75,7 +122,9 @@ export default function App() {
     <LanguageProvider initialLocale="zh-CN" initialPreference="system">
       <TooltipProvider>
         <AppProvider>
-          <AppRoot />
+          <AppErrorBoundary>
+            <AppRoot />
+          </AppErrorBoundary>
           <PortConflictDialog />
         </AppProvider>
         <Toaster />
