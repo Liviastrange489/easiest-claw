@@ -2,10 +2,13 @@ import { useCallback, useEffect, useState } from "react"
 import {
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   FileText,
+  FolderClosed,
   FolderOpen,
   Loader2,
   PanelRightClose,
+  RefreshCw,
   Save,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -15,28 +18,33 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/i18n"
+import { AGENT_FILE_NAMES } from "@/lib/agents/agentFiles"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type BootstrapFile = {
+type TreeNode = {
   name: string
+  type: "file" | "dir"
   path: string
-  missing: boolean
   size?: number
   updatedAtMs?: number
+  children?: TreeNode[]
 }
 
-type MemoryFile = {
+type SelectedFile = {
+  path: string
   name: string
-  size: number
-  updatedAtMs: number
+  isBootstrap: boolean
 }
-
-type SelectedFile =
-  | { source: "bootstrap"; name: string }
-  | { source: "memory"; name: string }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+const BOOTSTRAP_SET = new Set<string>(AGENT_FILE_NAMES)
+
+function isBootstrapFile(node: TreeNode): boolean {
+  // Root-level files matching bootstrap names
+  return node.type === "file" && !node.path.includes("/") && BOOTSTRAP_SET.has(node.name)
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -57,13 +65,12 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
 
   // data
   const [workspace, setWorkspace] = useState("")
-  const [bootstrapFiles, setBootstrapFiles] = useState<BootstrapFile[]>([])
-  const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([])
+  const [tree, setTree] = useState<TreeNode[]>([])
   const [loadingList, setLoadingList] = useState(false)
 
-  // tree state
-  const [memoryExpanded, setMemoryExpanded] = useState(false)
+  // selection
   const [selected, setSelected] = useState<SelectedFile | null>(null)
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
 
   // preview state
   const [content, setContent] = useState("")
@@ -71,27 +78,18 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
   const [loadingFile, setLoadingFile] = useState(false)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [fileError, setFileError] = useState<string | null>(null)
 
-  const isMemoryFile = selected?.source === "memory"
-  const selectedName = selected?.name ?? ""
-
-  // ── Load file list ──────────────────────────────────────────────────────
+  // ── Load file tree ──────────────────────────────────────────────────────
 
   const loadFiles = useCallback(async () => {
     if (!agentId) return
     setLoadingList(true)
     try {
-      const [filesRes, memRes] = await Promise.all([
-        window.ipc.agentsFilesList({ agentId }),
-        window.ipc.agentsMemoryList({ agentId }),
-      ])
-      if (filesRes.ok) {
-        const r = filesRes.result as { workspace?: string; files?: BootstrapFile[] }
-        setWorkspace(r.workspace ?? "")
-        setBootstrapFiles(r.files ?? [])
-      }
-      if (memRes.ok) {
-        setMemoryFiles((memRes as { ok: true; files: MemoryFile[] }).files ?? [])
+      const res = await window.ipc.agentsWorkspaceTree({ agentId })
+      if (res.ok) {
+        setWorkspace(res.workspace ?? "")
+        setTree(res.tree ?? [])
       }
     } finally {
       setLoadingList(false)
@@ -104,6 +102,7 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
       setContent("")
       setEditContent("")
       setDirty(false)
+      setFileError(null)
       loadFiles()
     }
   }, [open, agentId, loadFiles])
@@ -114,8 +113,10 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
     async (file: SelectedFile) => {
       setLoadingFile(true)
       setDirty(false)
+      setFileError(null)
       try {
-        if (file.source === "bootstrap") {
+        if (file.isBootstrap) {
+          // Bootstrap files: use gateway API (supports editing)
           const res = await window.ipc.agentsFilesGet({ agentId, name: file.name })
           if (res.ok) {
             const c = (res.result as { file?: { content?: string } })?.file?.content ?? ""
@@ -126,21 +127,33 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
             setEditContent("")
           }
         } else {
-          const res = await window.ipc.agentsMemoryGet({ agentId, name: file.name })
+          // Other files: use filesystem read (read-only)
+          const res = await window.ipc.agentsWorkspaceRead({ agentId, filePath: file.path })
           if (res.ok) {
-            const c = (res as { ok: true; content?: string }).content ?? ""
-            setContent(c)
-            setEditContent(c)
+            if (res.binary) {
+              setContent("")
+              setEditContent("")
+              setFileError(t("workspace.binaryFile"))
+            } else if (res.tooLarge) {
+              setContent("")
+              setEditContent("")
+              setFileError(t("workspace.fileTooLarge"))
+            } else {
+              const c = res.content ?? ""
+              setContent(c)
+              setEditContent(c)
+            }
           } else {
             setContent("")
             setEditContent("")
+            setFileError(res.error ?? "")
           }
         }
       } finally {
         setLoadingFile(false)
       }
     },
-    [agentId]
+    [agentId, t]
   )
 
   const handleSelectFile = (file: SelectedFile) => {
@@ -148,10 +161,22 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
     loadFileContent(file)
   }
 
+  const toggleDir = (dirPath: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev)
+      if (next.has(dirPath)) {
+        next.delete(dirPath)
+      } else {
+        next.add(dirPath)
+      }
+      return next
+    })
+  }
+
   // ── Save ────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
-    if (!selected || selected.source !== "bootstrap") return
+    if (!selected || !selected.isBootstrap) return
     setSaving(true)
     try {
       const res = await window.ipc.agentsFilesSet({
@@ -172,13 +197,90 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
     }
   }
 
+  // ── Render tree recursively ─────────────────────────────────────────────
+
+  const renderTree = (nodes: TreeNode[], depth: number) =>
+    nodes.map((node) => {
+      if (node.type === "dir") {
+        const isExpanded = expandedDirs.has(node.path)
+        return (
+          <div key={node.path}>
+            <button
+              className={cn(
+                "w-full flex items-center gap-1.5 py-1.5 text-left hover:bg-accent/50 transition-colors",
+              )}
+              style={{ paddingLeft: `${depth * 16 + 12}px`, paddingRight: "12px" }}
+              onClick={() => toggleDir(node.path)}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+              )}
+              {isExpanded ? (
+                <FolderOpen className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              ) : (
+                <FolderClosed className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              )}
+              <span className="text-xs font-medium truncate">{node.name}/</span>
+              {node.children && node.children.length > 0 && (
+                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                  {node.children.length}
+                </span>
+              )}
+            </button>
+            {isExpanded && node.children && renderTree(node.children, depth + 1)}
+          </div>
+        )
+      }
+
+      const bootstrap = isBootstrapFile(node)
+      const isSelected =
+        selected?.path === node.path
+      return (
+        <div
+          key={node.path}
+          className={cn(
+            "group flex items-center gap-1.5 py-1.5 transition-colors",
+            isSelected ? "bg-accent" : "hover:bg-accent/50"
+          )}
+          style={{ paddingLeft: `${depth * 16 + 12}px`, paddingRight: "12px" }}
+        >
+          <button
+            className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+            onClick={() =>
+              handleSelectFile({ path: node.path, name: node.name, isBootstrap: bootstrap })
+            }
+          >
+            <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs font-mono truncate flex-1">{node.name}</span>
+          </button>
+          {node.size != null && (
+            <span className="text-[10px] text-muted-foreground shrink-0">
+              {formatSize(node.size)}
+            </span>
+          )}
+          <button
+            className="h-5 w-5 shrink-0 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-accent transition-all"
+            title={t("workspace.openExternal")}
+            onClick={(e) => {
+              e.stopPropagation()
+              window.ipc.agentsWorkspaceOpen({ agentId, filePath: node.path })
+            }}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </button>
+        </div>
+      )
+    })
+
   return (
     <div
       className="border-l flex flex-col bg-background shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out"
       style={{ width: open ? 360 : 0, borderLeftWidth: open ? 1 : 0 }}
     >
     <div className="w-[360px] flex flex-col h-full shrink-0">
-      {/* Header — Windows 下右侧留出窗口控件的空间，避免关闭按钮和系统按钮重叠 */}
+      {/* Header */}
       <div
         className="h-12 flex items-center justify-between px-3 border-b shrink-0"
         style={{
@@ -189,14 +291,26 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
           <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-sm font-medium truncate">{t("workspace.title")}</span>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0 text-muted-foreground"
-          onClick={() => onOpenChange(false)}
-        >
-          <PanelRightClose className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground"
+            onClick={() => loadFiles()}
+            disabled={loadingList}
+            title={t("workspace.refresh")}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", loadingList && "animate-spin")} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground"
+            onClick={() => onOpenChange(false)}
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Workspace path */}
@@ -215,61 +329,15 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-h-0">
-          {/* File list — scrollable, max ~40% height */}
+          {/* File tree — scrollable, max ~40% height */}
           <ScrollArea className="shrink-0 max-h-[40%] border-b">
             <div className="py-1">
-              {/* Bootstrap files */}
-              {bootstrapFiles.map((file) => (
-                <TreeFileItem
-                  key={file.name}
-                  name={file.name}
-                  size={file.size}
-                  missing={file.missing}
-                  isSelected={
-                    selected?.source === "bootstrap" && selected.name === file.name
-                  }
-                  onClick={() =>
-                    handleSelectFile({ source: "bootstrap", name: file.name })
-                  }
-                />
-              ))}
-
-              {/* Memory folder */}
-              {memoryFiles.length > 0 && (
-                <>
-                  <button
-                    className={cn(
-                      "w-full flex items-center gap-1.5 px-3 py-1.5 text-left hover:bg-accent/50 transition-colors"
-                    )}
-                    onClick={() => setMemoryExpanded((p) => !p)}
-                  >
-                    {memoryExpanded ? (
-                      <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
-                    ) : (
-                      <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                    )}
-                    <FolderOpen className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                    <span className="text-xs font-medium truncate">memory/</span>
-                    <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
-                      {memoryFiles.length}
-                    </span>
-                  </button>
-                  {memoryExpanded &&
-                    memoryFiles.map((file) => (
-                      <TreeFileItem
-                        key={file.name}
-                        name={file.name}
-                        size={file.size}
-                        indent
-                        isSelected={
-                          selected?.source === "memory" && selected.name === file.name
-                        }
-                        onClick={() =>
-                          handleSelectFile({ source: "memory", name: file.name })
-                        }
-                      />
-                    ))}
-                </>
+              {tree.length > 0 ? (
+                renderTree(tree, 0)
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  {t("workspace.emptyFile")}
+                </p>
               )}
             </div>
           </ScrollArea>
@@ -282,10 +350,10 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
                 <div className="flex items-center gap-1.5 min-w-0">
                   <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span className="text-xs font-mono font-medium truncate">
-                    {isMemoryFile ? `memory/${selectedName}` : selectedName}
+                    {selected.path}
                   </span>
                 </div>
-                {!isMemoryFile && (
+                {selected.isBootstrap ? (
                   <Button
                     size="sm"
                     className="h-6 gap-1 text-xs px-2"
@@ -299,8 +367,7 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
                     )}
                     {t("workspace.save")}
                   </Button>
-                )}
-                {isMemoryFile && (
+                ) : (
                   <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                     {t("workspace.readonly")}
                   </Badge>
@@ -312,6 +379,10 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
                 <div className="flex-1 flex items-center justify-center text-muted-foreground gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
                 </div>
+              ) : fileError ? (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                  <p className="text-xs">{fileError}</p>
+                </div>
               ) : (
                 <Textarea
                   className="flex-1 resize-none font-mono text-xs min-h-0 border-0 rounded-none focus-visible:ring-0"
@@ -320,11 +391,11 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
                     setEditContent(e.target.value)
                     setDirty(e.target.value !== content)
                   }}
-                  readOnly={isMemoryFile}
+                  readOnly={!selected.isBootstrap}
                   placeholder={
-                    isMemoryFile
-                      ? t("workspace.emptyMemory")
-                      : t("workspace.emptyFile")
+                    selected.isBootstrap
+                      ? t("workspace.emptyFile")
+                      : t("workspace.readonly")
                   }
                 />
               )}
@@ -338,49 +409,5 @@ export function WorkspacePanel({ agentId, open, onOpenChange }: WorkspacePanelPr
       )}
     </div>
     </div>
-  )
-}
-
-// ── TreeFileItem ─────────────────────────────────────────────────────────────
-
-function TreeFileItem({
-  name,
-  size,
-  missing,
-  indent,
-  isSelected,
-  onClick,
-}: {
-  name: string
-  size?: number
-  missing?: boolean
-  indent?: boolean
-  isSelected: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={cn(
-        "w-full flex items-center gap-1.5 py-1.5 text-left transition-colors",
-        indent ? "px-8" : "px-3",
-        isSelected ? "bg-accent" : "hover:bg-accent/50"
-      )}
-      onClick={onClick}
-    >
-      <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      <span className="text-xs font-mono truncate flex-1">{name}</span>
-      {missing ? (
-        <Badge
-          variant="outline"
-          className="text-[9px] px-1 py-0 h-3.5 text-yellow-600 border-yellow-400 shrink-0"
-        >
-          !
-        </Badge>
-      ) : size != null ? (
-        <span className="text-[10px] text-muted-foreground shrink-0">
-          {formatSize(size)}
-        </span>
-      ) : null}
-    </button>
   )
 }

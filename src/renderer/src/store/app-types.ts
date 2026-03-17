@@ -11,6 +11,7 @@ export interface AppState {
   connectionStatus: ConnectionStatus
   gatewayConnected: boolean
   mainAgentId: string | null
+  modelsConfigured: boolean
 }
 
 export type AppAction =
@@ -39,6 +40,7 @@ export type AppAction =
   | { type: "REMOVE_AGENT"; payload: { agentId: string } }
   | { type: "ADD_GROUP_MEMBER"; payload: { conversationId: string; agentId: string } }
   | { type: "TOGGLE_PIN"; payload: { conversationId: string } }
+  | { type: "SET_MODELS_CONFIGURED"; payload: boolean }
 
 export const initialState: AppState = {
   view: "chat",
@@ -50,6 +52,7 @@ export const initialState: AppState = {
   connectionStatus: "connecting",
   gatewayConnected: false,
   mainAgentId: null,
+  modelsConfigured: true,
 }
 
 export interface AppContextValue {
@@ -60,4 +63,5 @@ export interface AppContextValue {
   refreshFleet: () => Promise<void>
   resetSession: (conversationId: string) => void
   abortConversation: (conversationId: string) => void
+  checkModelsConfigured: () => Promise<void>
 }

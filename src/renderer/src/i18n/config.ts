@@ -13,15 +13,7 @@ export const LOCALE_PREFERENCE_STORAGE_KEY = "mossb-locale-preference"
 
 export const LOCALE_OPTIONS: LocaleOption[] = [
   { code: "zh-CN", label: "简体中文", direction: "ltr" },
-  { code: "zh-TW", label: "繁體中文", direction: "ltr" },
   { code: "en", label: "English", direction: "ltr" },
-  { code: "ja", label: "日本語", direction: "ltr" },
-  { code: "ko", label: "한국어", direction: "ltr" },
-  { code: "ru", label: "Русский", direction: "ltr" },
-  { code: "ar", label: "العربية", direction: "rtl" },
-  { code: "hi", label: "हिन्दी", direction: "ltr" },
-  { code: "fr", label: "Français", direction: "ltr" },
-  { code: "vi", label: "Tiếng Việt", direction: "ltr" },
 ]
 
 const LOCALE_MAP = new Map(LOCALE_OPTIONS.map((option) => [option.code, option]))
@@ -40,24 +32,8 @@ const normalizeLocale = (value: string | null | undefined): Locale | null => {
 
   const normalized = value.trim().toLowerCase().replace(/_/g, "-")
 
-  if (
-    normalized === "zh-tw" ||
-    normalized === "zh-hk" ||
-    normalized === "zh-mo" ||
-    normalized.startsWith("zh-hant")
-  ) {
-    return "zh-TW"
-  }
-
   if (normalized.startsWith("zh")) return "zh-CN"
   if (normalized.startsWith("en")) return "en"
-  if (normalized.startsWith("ja")) return "ja"
-  if (normalized.startsWith("ko")) return "ko"
-  if (normalized.startsWith("ru")) return "ru"
-  if (normalized.startsWith("ar")) return "ar"
-  if (normalized.startsWith("hi")) return "hi"
-  if (normalized.startsWith("fr")) return "fr"
-  if (normalized.startsWith("vi")) return "vi"
 
   return null
 }

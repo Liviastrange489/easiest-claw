@@ -15,6 +15,7 @@ import {
   type LocalePreference,
 } from "@/i18n"
 import { cn } from "@/lib/utils"
+import { useApp } from "@/store/app-context"
 import { ModelConfigPanel } from "./model-config"
 import { GatewayConfigPanel } from "./gateway-config-panel"
 import { OpenclawUpdatePanel } from "./openclaw-update-panel"
@@ -28,9 +29,10 @@ type SettingsSection = "models" | "gateway" | "storage" | "language" | "about"
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t } = useI18n()
+  const { state } = useApp()
   const [activeSection, setActiveSection] = useState<SettingsSection>("models")
-  const navItems: { id: SettingsSection; label: string; icon: typeof Brain }[] = [
-    { id: "models", label: t("settings.sections.models"), icon: Brain },
+  const navItems: { id: SettingsSection; label: string; icon: typeof Brain; showDot?: boolean }[] = [
+    { id: "models", label: t("settings.sections.models"), icon: Brain, showDot: !state.modelsConfigured },
     { id: "gateway", label: t("settings.sections.gateway"), icon: Server },
     { id: "storage", label: t("settings.sections.storage"), icon: HardDrive },
     { id: "language", label: t("settings.sections.language"), icon: Languages },
@@ -67,7 +69,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <item.icon className="h-4 w-4" />
+                  <div className="relative">
+                    <item.icon className="h-4 w-4" />
+                    {item.showDot && (
+                      <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-destructive" />
+                    )}
+                  </div>
                   {item.label}
                 </button>
               ))}

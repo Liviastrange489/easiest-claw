@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { IpcMain } from 'electron'
+import { shell, type IpcMain } from 'electron'
 import { gw } from './gw'
 
 // ── Workspace path cache (per agentId) ──────────────────────────────────────
@@ -102,6 +102,140 @@ export const registerAgentHandlers = (ipcMain: IpcMain): void => {
 
   ipcMain.handle('system:status', async () => {
     return gw('status', {})
+  })
+
+  // ── Full workspace tree scan (filesystem-based) ────────────────────────────
+
+  const SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__', '.next', '.cache', '.venv', '.turbo', 'dist', '.DS_Store'])
+  const MAX_DEPTH = 5
+  const MAX_FILES = 2000
+
+  interface TreeNode {
+    name: string
+    type: 'file' | 'dir'
+    path: string
+    size?: number
+    updatedAtMs?: number
+    children?: TreeNode[]
+  }
+
+  async function scanDir(dir: string, basePath: string, depth: number, counter: { count: number }): Promise<TreeNode[]> {
+    if (depth > MAX_DEPTH || counter.count >= MAX_FILES) return []
+    let entries
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return []
+    }
+
+    const dirs: TreeNode[] = []
+    const files: TreeNode[] = []
+
+    for (const entry of entries) {
+      if (counter.count >= MAX_FILES) break
+      if (entry.name.startsWith('.') && SKIP_DIRS.has(entry.name)) continue
+      if (SKIP_DIRS.has(entry.name)) continue
+
+      const fullPath = path.join(dir, entry.name)
+      const relativePath = path.join(basePath, entry.name).replace(/\\/g, '/')
+
+      if (entry.isDirectory()) {
+        const children = await scanDir(fullPath, relativePath, depth + 1, counter)
+        dirs.push({ name: entry.name, type: 'dir', path: relativePath, children })
+      } else if (entry.isFile()) {
+        counter.count++
+        try {
+          const stat = await fs.stat(fullPath)
+          files.push({ name: entry.name, type: 'file', path: relativePath, size: stat.size, updatedAtMs: stat.mtimeMs })
+        } catch {
+          files.push({ name: entry.name, type: 'file', path: relativePath })
+        }
+      }
+    }
+
+    // Sort: dirs first (alpha), then files (alpha)
+    dirs.sort((a, b) => a.name.localeCompare(b.name))
+    files.sort((a, b) => a.name.localeCompare(b.name))
+    return [...dirs, ...files]
+  }
+
+  ipcMain.handle('agents:workspace:tree', async (_event, params: { agentId: string }) => {
+    const workspace = await resolveWorkspaceDir(params.agentId)
+    if (!workspace) return { ok: false, error: 'Cannot resolve workspace path' }
+
+    try {
+      const realWorkspace = await fs.realpath(workspace).catch(() => workspace)
+      const tree = await scanDir(realWorkspace, '', 0, { count: 0 })
+      return { ok: true, workspace, tree }
+    } catch (err) {
+      return { ok: false, error: `Failed to scan workspace: ${(err as Error).message}` }
+    }
+  })
+
+  ipcMain.handle('agents:workspace:read', async (_event, params: { agentId: string; filePath: string }) => {
+    const workspace = await resolveWorkspaceDir(params.agentId)
+    if (!workspace) return { ok: false, error: 'Cannot resolve workspace path' }
+
+    const filePath = params.filePath
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath)) {
+      return { ok: false, error: 'Invalid file path' }
+    }
+
+    const fullPath = path.join(workspace, filePath)
+    const realPath = await fs.realpath(fullPath).catch(() => fullPath)
+    const realWorkspace = await fs.realpath(workspace).catch(() => workspace)
+    if (!realPath.startsWith(realWorkspace)) {
+      return { ok: false, error: 'Path escapes workspace' }
+    }
+
+    try {
+      const stat = await fs.stat(fullPath)
+      if (stat.size > 1024 * 1024) {
+        return { ok: true, content: null, tooLarge: true }
+      }
+      // Binary detection: read first 512 bytes and check for NUL
+      const buf = Buffer.alloc(Math.min(512, stat.size))
+      const fh = await fs.open(fullPath, 'r')
+      try {
+        await fh.read(buf, 0, buf.length, 0)
+      } finally {
+        await fh.close()
+      }
+      if (buf.includes(0)) {
+        return { ok: true, content: null, binary: true }
+      }
+      const content = await fs.readFile(fullPath, 'utf8')
+      return { ok: true, content }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { ok: false, error: 'File not found' }
+      }
+      return { ok: false, error: `Failed to read file: ${(err as Error).message}` }
+    }
+  })
+
+  // ── Open file with system default application ──────────────────────────────
+  ipcMain.handle('agents:workspace:open', async (_event, params: { agentId: string; filePath: string }) => {
+    const workspace = await resolveWorkspaceDir(params.agentId)
+    if (!workspace) return { ok: false, error: 'Cannot resolve workspace path' }
+
+    const filePath = params.filePath
+    if (!filePath || filePath.includes('..') || path.isAbsolute(filePath)) {
+      return { ok: false, error: 'Invalid file path' }
+    }
+
+    const fullPath = path.join(workspace, filePath)
+    const realPath = await fs.realpath(fullPath).catch(() => fullPath)
+    const realWorkspace = await fs.realpath(workspace).catch(() => workspace)
+    if (!realPath.startsWith(realWorkspace)) {
+      return { ok: false, error: 'Path escapes workspace' }
+    }
+
+    const errorMessage = await shell.openPath(realPath)
+    if (errorMessage) {
+      return { ok: false, error: errorMessage }
+    }
+    return { ok: true }
   })
 
   // ── Memory directory listing (filesystem-based, gateway doesn't expose this) ─

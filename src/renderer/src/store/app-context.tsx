@@ -103,9 +103,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [loadFleet, loadHistory])
 
+  const checkModelsConfigured = useCallback(async () => {
+    try {
+      const res = await window.ipc.openclawModelsGet()
+      if (!res || !res.ok) {
+        dispatch({ type: "SET_MODELS_CONFIGURED", payload: false })
+        return
+      }
+      const result = res as { providers: Record<string, unknown>; defaults: { primary: string } }
+      const hasProviders = result.providers && Object.keys(result.providers).length > 0
+      const hasPrimary = !!result.defaults?.primary
+      dispatch({ type: "SET_MODELS_CONFIGURED", payload: !!(hasProviders && hasPrimary) })
+    } catch {
+      // IPC not ready yet, keep default (true) to avoid flash
+    }
+  }, [])
+
   const { status, connect } = useRuntimeEventStream(handleEvent)
 
   const prevStatusRef = useRef<ConnectionStatus>('disconnected')
+  const fleetRetryRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     dispatch({ type: "SET_CONNECTION_STATUS", payload: status })
@@ -113,9 +130,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // gateway 每次从非连接状态切换到 connected 时，自动刷新 agent 列表和历史记录
     if (status === 'connected' && prevStatusRef.current !== 'connected') {
       refreshFleet()
+      checkModelsConfigured()
+
+      // Agent 列表可能因 gateway 尚未就绪而为空，每秒重试一次，最多 20 秒
+      if (fleetRetryRef.current) clearInterval(fleetRetryRef.current)
+      let elapsed = 0
+      fleetRetryRef.current = setInterval(() => {
+        elapsed += 1000
+        if (stateRef.current.agents.length > 0 || elapsed >= 20000) {
+          if (fleetRetryRef.current) clearInterval(fleetRetryRef.current)
+          fleetRetryRef.current = null
+          return
+        }
+        refreshFleet()
+      }, 1000)
     }
+
+    // 断开连接时清理重试
+    if (status !== 'connected' && fleetRetryRef.current) {
+      clearInterval(fleetRetryRef.current)
+      fleetRetryRef.current = null
+    }
+
     prevStatusRef.current = status
-  }, [status, refreshFleet])
+
+    return () => {
+      if (fleetRetryRef.current) {
+        clearInterval(fleetRetryRef.current)
+        fleetRetryRef.current = null
+      }
+    }
+  }, [status, refreshFleet, checkModelsConfigured])
 
   // Persist group messages to localStorage whenever messages change
   // Skip until initialization is complete to avoid overwriting saved data with empty state
@@ -412,8 +457,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ state, dispatch, sendMessage, simulateAgentReply, refreshFleet, resetSession, abortConversation }),
-    [state, sendMessage, simulateAgentReply, refreshFleet, resetSession, abortConversation]
+    () => ({ state, dispatch, sendMessage, simulateAgentReply, refreshFleet, resetSession, abortConversation, checkModelsConfigured }),
+    [state, sendMessage, simulateAgentReply, refreshFleet, resetSession, abortConversation, checkModelsConfigured]
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

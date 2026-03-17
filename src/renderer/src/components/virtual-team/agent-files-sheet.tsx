@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useState } from "react"
-import { ArrowLeft, FileText, Loader2, Save } from "lucide-react"
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  FolderClosed,
+  FolderOpen,
+  Loader2,
+  RefreshCw,
+  Save,
+} from "lucide-react"
 import { toast } from "sonner"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -7,19 +18,36 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
 import { getAgentAvatarUrl } from "@/lib/avatar"
+import { AGENT_FILE_NAMES } from "@/lib/agents/agentFiles"
+import { useI18n } from "@/i18n"
 import type { Agent } from "@/types"
 
-type FileEntry = {
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type TreeNode = {
   name: string
+  type: "file" | "dir"
   path: string
-  missing: boolean
   size?: number
   updatedAtMs?: number
-  content?: string
+  children?: TreeNode[]
 }
 
-type View = { kind: "list" } | { kind: "editor"; file: FileEntry }
+type SelectedFile = {
+  path: string
+  name: string
+  isBootstrap: boolean
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const BOOTSTRAP_SET = new Set<string>(AGENT_FILE_NAMES)
+
+function isBootstrapFile(node: TreeNode): boolean {
+  return node.type === "file" && !node.path.includes("/") && BOOTSTRAP_SET.has(node.name)
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -27,15 +55,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function formatTime(ms: number): string {
-  const diff = Date.now() - ms
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return "刚刚"
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
-}
+// ── AgentFilesSheet ──────────────────────────────────────────────────────────
 
 interface AgentFilesSheetProps {
   agent: Agent | null
@@ -44,55 +64,82 @@ interface AgentFilesSheetProps {
 }
 
 export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetProps) {
-  const [view, setView] = useState<View>({ kind: "list" })
-  const [files, setFiles] = useState<FileEntry[]>([])
+  const { t } = useI18n()
+  const [view, setView] = useState<"list" | "editor">("list")
+  const [tree, setTree] = useState<TreeNode[]>([])
   const [workspace, setWorkspace] = useState("")
   const [loadingList, setLoadingList] = useState(false)
   const [loadingFile, setLoadingFile] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editContent, setEditContent] = useState("")
+  const [content, setContent] = useState("")
+  const [selected, setSelected] = useState<SelectedFile | null>(null)
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
+  const [fileError, setFileError] = useState<string | null>(null)
 
   const loadFiles = useCallback(async () => {
     if (!agent) return
     setLoadingList(true)
     try {
-      const res = await window.ipc.agentsFilesList({ agentId: agent.id })
+      const res = await window.ipc.agentsWorkspaceTree({ agentId: agent.id })
       if (res.ok) {
-        const r = res.result as { workspace?: string; files?: FileEntry[] }
-        setWorkspace(r.workspace ?? "")
-        setFiles(r.files ?? [])
+        setWorkspace(res.workspace ?? "")
+        setTree(res.tree ?? [])
       } else {
-        toast.error((res as { error?: string }).error ?? "获取文件列表失败")
+        toast.error(res.error ?? t("workspace.saveFailed"))
       }
     } finally {
       setLoadingList(false)
     }
-  }, [agent])
+  }, [agent, t])
 
   useEffect(() => {
     if (open && agent) {
-      setView({ kind: "list" })
+      setView("list")
+      setSelected(null)
+      setFileError(null)
       loadFiles()
     }
   }, [open, agent, loadFiles])
 
-  const openFile = async (file: FileEntry) => {
-    if (file.missing) {
-      setView({ kind: "editor", file })
-      setEditContent("")
-      return
-    }
+  const openFile = async (file: SelectedFile) => {
     if (!agent) return
+    setSelected(file)
+    setView("editor")
     setLoadingFile(true)
+    setFileError(null)
     try {
-      const res = await window.ipc.agentsFilesGet({ agentId: agent.id, name: file.name })
-      if (res.ok) {
-        const f = (res.result as { file?: FileEntry }).file
-        const populated = { ...file, content: f?.content ?? "" }
-        setView({ kind: "editor", file: populated })
-        setEditContent(f?.content ?? "")
+      if (file.isBootstrap) {
+        const res = await window.ipc.agentsFilesGet({ agentId: agent.id, name: file.name })
+        if (res.ok) {
+          const c = (res.result as { file?: { content?: string } })?.file?.content ?? ""
+          setContent(c)
+          setEditContent(c)
+        } else {
+          setContent("")
+          setEditContent("")
+        }
       } else {
-        toast.error((res as { error?: string }).error ?? "读取文件失败")
+        const res = await window.ipc.agentsWorkspaceRead({ agentId: agent.id, filePath: file.path })
+        if (res.ok) {
+          if (res.binary) {
+            setContent("")
+            setEditContent("")
+            setFileError(t("workspace.binaryFile"))
+          } else if (res.tooLarge) {
+            setContent("")
+            setEditContent("")
+            setFileError(t("workspace.fileTooLarge"))
+          } else {
+            const c = res.content ?? ""
+            setContent(c)
+            setEditContent(c)
+          }
+        } else {
+          setContent("")
+          setEditContent("")
+          setFileError(res.error ?? "")
+        }
       }
     } finally {
       setLoadingFile(false)
@@ -100,26 +147,103 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
   }
 
   const saveFile = async () => {
-    if (view.kind !== "editor" || !agent) return
+    if (!selected || !selected.isBootstrap || !agent) return
     setSaving(true)
     try {
       const res = await window.ipc.agentsFilesSet({
         agentId: agent.id,
-        name: view.file.name,
+        name: selected.name,
         content: editContent,
       })
       if (res.ok) {
-        toast.success(`${view.file.name} 已保存`)
-        setView({ kind: "editor", file: { ...view.file, missing: false, content: editContent } })
-        // refresh list in background
+        toast.success(`${selected.name} ${t("workspace.saved")}`)
+        setContent(editContent)
         loadFiles()
       } else {
-        toast.error((res as { error?: string }).error ?? "保存失败")
+        toast.error((res as { error?: string }).error ?? t("workspace.saveFailed"))
       }
     } finally {
       setSaving(false)
     }
   }
+
+  const toggleDir = (dirPath: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev)
+      if (next.has(dirPath)) {
+        next.delete(dirPath)
+      } else {
+        next.add(dirPath)
+      }
+      return next
+    })
+  }
+
+  const renderTree = (nodes: TreeNode[], depth: number) =>
+    nodes.map((node) => {
+      if (node.type === "dir") {
+        const isExpanded = expandedDirs.has(node.path)
+        return (
+          <div key={node.path}>
+            <button
+              className="w-full flex items-center gap-2 py-2.5 hover:bg-muted/50 transition-colors text-left"
+              style={{ paddingLeft: `${depth * 16 + 16}px`, paddingRight: "16px" }}
+              onClick={() => toggleDir(node.path)}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+              )}
+              {isExpanded ? (
+                <FolderOpen className="h-4 w-4 text-amber-500 shrink-0" />
+              ) : (
+                <FolderClosed className="h-4 w-4 text-amber-500 shrink-0" />
+              )}
+              <span className="text-sm font-medium truncate flex-1">{node.name}/</span>
+              {node.children && node.children.length > 0 && (
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {node.children.length}
+                </span>
+              )}
+            </button>
+            {isExpanded && node.children && renderTree(node.children, depth + 1)}
+          </div>
+        )
+      }
+
+      const bootstrap = isBootstrapFile(node)
+      return (
+        <div
+          key={node.path}
+          className="group flex items-center gap-2 py-2.5 hover:bg-muted/50 transition-colors"
+          style={{ paddingLeft: `${depth * 16 + 16}px`, paddingRight: "16px" }}
+        >
+          <button
+            className="flex items-center gap-2 flex-1 min-w-0 text-left"
+            onClick={() => openFile({ path: node.path, name: node.name, isBootstrap: bootstrap })}
+          >
+            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-mono">{node.name}</p>
+              {node.size != null && (
+                <p className="text-xs text-muted-foreground">{formatSize(node.size)}</p>
+              )}
+            </div>
+          </button>
+          <button
+            className="h-6 w-6 shrink-0 flex items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-accent transition-all"
+            title={t("workspace.openExternal")}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (agent) window.ipc.agentsWorkspaceOpen({ agentId: agent.id, filePath: node.path })
+            }}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )
+    })
 
   if (!agent) return null
 
@@ -128,12 +252,12 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
       <SheetContent className="w-[440px] sm:w-[440px] p-0 flex flex-col">
         <SheetHeader className="px-4 pt-4 pb-3 border-b shrink-0">
           <div className="flex items-center gap-3">
-            {view.kind === "editor" && (
+            {view === "editor" && (
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 shrink-0"
-                onClick={() => setView({ kind: "list" })}
+                onClick={() => { setView("list"); setSelected(null); setFileError(null) }}
               >
                 <ArrowLeft className="h-4 w-4" />
               </Button>
@@ -146,8 +270,8 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
             </Avatar>
             <div className="flex-1 min-w-0">
               <SheetTitle className="text-sm leading-tight">{agent.name}</SheetTitle>
-              {view.kind === "editor" ? (
-                <p className="text-xs text-muted-foreground font-mono">{view.file.name}</p>
+              {view === "editor" && selected ? (
+                <p className="text-xs text-muted-foreground font-mono truncate">{selected.path}</p>
               ) : (
                 workspace && (
                   <p className="text-xs text-muted-foreground truncate" title={workspace}>
@@ -156,55 +280,48 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
                 )
               )}
             </div>
-            {view.kind === "editor" && (
+            {view === "editor" && selected?.isBootstrap && (
               <Button size="sm" className="h-7 gap-1" onClick={saveFile} disabled={saving}>
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Save className="h-3.5 w-3.5" />
                 )}
-                保存
+                {t("workspace.save")}
+              </Button>
+            )}
+            {view === "editor" && selected && !selected.isBootstrap && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                {t("workspace.readonly")}
+              </Badge>
+            )}
+            {view === "list" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground"
+                onClick={() => loadFiles()}
+                disabled={loadingList}
+                title={t("workspace.refresh")}
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", loadingList && "animate-spin")} />
               </Button>
             )}
           </div>
         </SheetHeader>
 
-        {view.kind === "list" ? (
+        {view === "list" ? (
           <ScrollArea className="flex-1">
             {loadingList ? (
               <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">加载中...</span>
+                <span className="text-sm">{t("workspace.loading")}</span>
               </div>
+            ) : tree.length > 0 ? (
+              <div className="py-1">{renderTree(tree, 0)}</div>
             ) : (
-              <div className="divide-y">
-                {files.map((file) => (
-                  <button
-                    key={file.name}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left"
-                    onClick={() => openFile(file)}
-                  >
-                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-mono font-medium">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {file.missing
-                          ? "缺失"
-                          : [
-                              file.size != null && formatSize(file.size),
-                              file.updatedAtMs != null && formatTime(file.updatedAtMs),
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                      </p>
-                    </div>
-                    {file.missing && (
-                      <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-500 shrink-0">
-                        MISSING
-                      </Badge>
-                    )}
-                  </button>
-                ))}
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <p className="text-sm">{t("workspace.emptyFile")}</p>
               </div>
             )}
           </ScrollArea>
@@ -213,14 +330,23 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
             {loadingFile ? (
               <div className="flex items-center justify-center flex-1 text-muted-foreground gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">读取中...</span>
+                <span className="text-sm">{t("workspace.loading")}</span>
+              </div>
+            ) : fileError ? (
+              <div className="flex items-center justify-center flex-1 text-muted-foreground">
+                <p className="text-xs">{fileError}</p>
               </div>
             ) : (
               <Textarea
                 className="flex-1 resize-none font-mono text-sm min-h-0"
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                placeholder={`${view.file.name} 内容为空，输入后点击保存即可创建`}
+                readOnly={!selected?.isBootstrap}
+                placeholder={
+                  selected?.isBootstrap
+                    ? t("workspace.emptyFile")
+                    : t("workspace.readonly")
+                }
               />
             )}
           </div>

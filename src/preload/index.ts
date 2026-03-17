@@ -118,6 +118,12 @@ const ipcApi = {
     ipcRenderer.invoke('agents:memory:list', params),
   agentsMemoryGet: (params: { agentId: string; name: string }) =>
     ipcRenderer.invoke('agents:memory:get', params),
+  agentsWorkspaceTree: (params: { agentId: string }) =>
+    ipcRenderer.invoke('agents:workspace:tree', params),
+  agentsWorkspaceRead: (params: { agentId: string; filePath: string }) =>
+    ipcRenderer.invoke('agents:workspace:read', params),
+  agentsWorkspaceOpen: (params: { agentId: string; filePath: string }) =>
+    ipcRenderer.invoke('agents:workspace:open', params),
   agentIdentityGet: (params: { agentId?: string; sessionKey?: string }) =>
     ipcRenderer.invoke('agent:identity:get', params),
   toolsCatalog: (params: { agentId?: string; sessionKey?: string }) =>
@@ -189,6 +195,16 @@ const ipcApi = {
     ipcRenderer.invoke('openclaw:agent-skills:get', agentId),
   agentSkillsSet: (agentId: string, skills: string[] | null) =>
     ipcRenderer.invoke('openclaw:agent-skills:set', { agentId, skills }),
+
+  // ── ClawHub marketplace ─────────────────────────────────────────────────
+  clawHubSearch: (query: string, limit?: number) =>
+    ipcRenderer.invoke('clawhub:search', { query, limit }),
+  clawHubExplore: (limit?: number, cursor?: string) =>
+    ipcRenderer.invoke('clawhub:explore', { limit, cursor }),
+  clawHubInstall: (name: string, installId: string, timeoutMs?: number) =>
+    ipcRenderer.invoke('clawhub:install', { name, installId, timeoutMs }),
+  clawHubCacheClear: () =>
+    ipcRenderer.invoke('clawhub:cache-clear'),
 
   // ── Extract progress (main → renderer) ────────────────────────────────────
   onExtractProgress: (callback: ExtractProgressCallback) => {

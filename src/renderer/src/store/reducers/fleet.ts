@@ -135,6 +135,8 @@ export function handleFleetAction(state: AppState, action: AppAction): AppState 
             : state.activeConversationId,
       }
     }
+    case "SET_MODELS_CONFIGURED":
+      return { ...state, modelsConfigured: action.payload }
     default:
       return null
   }

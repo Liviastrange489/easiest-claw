@@ -1,6 +1,6 @@
 
 
-import { Pin, Plus, Search, Trash2 } from "lucide-react"
+import { Loader2, Pin, Plus, RefreshCw, Search, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -27,17 +27,28 @@ import {
 import { GroupAvatar } from "./group-avatar"
 import { NewConversationDialog } from "./new-conversation-dialog"
 import { CreateGroupDialog } from "./create-group-dialog"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { Conversation } from "@/types"
 
 interface ConversationListProps {}
 
 export function ConversationList(_props: ConversationListProps) {
-  const { state, dispatch } = useApp()
+  const { state, dispatch, refreshFleet } = useApp()
   const { t } = useI18n()
   const [search, setSearch] = useState("")
   const [newConvOpen, setNewConvOpen] = useState(false)
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   useAvatarVersion() // re-render when avatar changes
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await refreshFleet()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const filtered = state.conversations.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase())
@@ -73,7 +84,23 @@ export function ConversationList(_props: ConversationListProps) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-accent"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                />
+              }
+            >
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+            </TooltipTrigger>
+            <TooltipContent>{t("common.refresh")}</TooltipContent>
+          </Tooltip>
           <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -120,6 +147,14 @@ export function ConversationList(_props: ConversationListProps) {
           ) : null
         ) : (
         <>
+
+        {/* 已连接但 agent 列表为空：加载中 */}
+        {filtered.length === 0 && state.agents.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <p className="text-xs">{t("conversationList.loadingAgents")}</p>
+          </div>
+        )}
 
         {/* 置顶区域 - 网格头像样式 */}
         {pinnedConvs.length > 0 && (

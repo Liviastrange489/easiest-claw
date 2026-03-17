@@ -281,7 +281,12 @@ export function NavRail() {
             />
           }
         >
-          <Settings className="h-5 w-5" />
+          <div className="relative">
+            <Settings className="h-5 w-5" />
+            {!state.modelsConfigured && (
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-destructive" />
+            )}
+          </div>
         </TooltipTrigger>
         <TooltipContent side="right">{t("nav.settings")}</TooltipContent>
       </Tooltip>

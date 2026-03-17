@@ -22,9 +22,11 @@ import type {
 import { API_TYPE_OPTIONS } from "./model-config-types"
 import { KNOWN_PROVIDERS } from "./known-providers"
 import { ProviderCard } from "./provider-card"
+import { useApp } from "@/store/app-context"
 
 export function ModelConfigPanel() {
   const { t } = useI18n()
+  const { checkModelsConfigured } = useApp()
   const [providers, setProviders] = useState<Record<string, ModelProvider>>({})
   const [defaults, setDefaults] = useState<ModelDefaults>({ primary: "", fallbacks: [] })
   const [loading, setLoading] = useState(true)
@@ -91,6 +93,7 @@ export function ModelConfigPanel() {
       })
       if (!res || !res.ok) throw new Error((res as { error?: string })?.error ?? 'Save failed')
       toast.success(t("modelConfig.saved"))
+      checkModelsConfigured()
       await loadData()
     } catch (err) {
       toast.error(t("modelConfig.saveFailed") + String(err))

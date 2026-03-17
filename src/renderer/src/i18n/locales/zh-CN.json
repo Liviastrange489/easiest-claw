@@ -88,7 +88,8 @@
     "createGroupComingSoon": "即将支持，敬请期待",
     "noMessages": "暂无消息",
     "refreshSuccess": "已刷新",
-    "refreshFailed": "刷新失败，请重试"
+    "refreshFailed": "刷新失败，请重试",
+    "loadingAgents": "正在加载团队成员..."
   },
   "newConversation": {
     "title": "选择一位团队成员开始对话",
@@ -364,7 +365,12 @@
     "dataLocationChooseHint": "点击浏览，选择一个文件夹",
     "dataLocationDefault": "使用默认位置",
     "dataLocationDefaultHint": "数据将存储在系统应用数据目录",
-    "dataLocationConfirm": "确认并继续"
+    "dataLocationConfirm": "确认并继续",
+    "modelCheckTitle": "配置 AI 模型",
+    "modelCheckDesc": "未检测到模型配置，您需要至少配置一个 AI 模型才能正常使用。",
+    "modelCheckConfigure": "去配置",
+    "modelCheckSkip": "稍后配置",
+    "modelCheckSkipHint": "您可以随时在设置中配置模型"
   },
   "windowControls": {
     "minimize": "最小化",
@@ -384,7 +390,11 @@
     "readonly": "只读",
     "selectFile": "选择文件查看内容",
     "emptyFile": "文件为空，输入内容后点击保存",
-    "emptyMemory": "暂无内容"
+    "emptyMemory": "暂无内容",
+    "refresh": "刷新",
+    "binaryFile": "二进制文件，无法预览",
+    "fileTooLarge": "文件过大，无法预览",
+    "openExternal": "用默认应用打开"
   },
   "channels": {
     "title": "渠道管理",
@@ -432,5 +442,39 @@
       "streamingBlock": "分块",
       "streamingProgress": "进度条"
     }
+  },
+  "skills": {
+    "title": "Skills",
+    "subtitle": "全局技能库管理",
+    "tabInstalled": "已安装",
+    "tabMarketplace": "技能市场",
+    "installed": "已安装技能",
+    "refresh": "刷新",
+    "loading": "加载中...",
+    "noSkills": "暂无可用技能",
+    "retry": "重试",
+    "enable": "点击启用",
+    "disable": "点击禁用",
+    "searchPlaceholder": "搜索技能...",
+    "searching": "搜索中...",
+    "noResults": "没有找到匹配的技能",
+    "tryOther": "试试其他关键词",
+    "install": "安装",
+    "installing": "安装中...",
+    "installed_badge": "已安装",
+    "installSuccess": "技能安装成功",
+    "installFailed": "安装失败",
+    "version": "v{{version}}",
+    "score": "匹配度",
+    "by": "by",
+    "downloads": "下载",
+    "explore": "热门推荐",
+    "exploreHint": "输入关键词搜索 ClawHub 技能市场",
+    "marketplaceError": "获取市场数据失败",
+    "openClawHub": "浏览 ClawHub",
+    "changelog": "更新日志",
+    "viewOnClawHub": "在 ClawHub 查看",
+    "malwareBlocked": "此技能因恶意软件被封禁",
+    "suspicious": "此技能已被标记为可疑"
   }
 }

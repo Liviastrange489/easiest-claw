@@ -5,7 +5,7 @@ const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
 function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "")
 }
-import { Loader2, Wifi, Minus, X, FolderOpen, HardDrive } from "lucide-react"
+import { Loader2, Wifi, Minus, X, FolderOpen, HardDrive, AlertTriangle, Settings as SettingsIcon } from "lucide-react"
 import { Camera } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ import { markOnboardingDone, setUserAvatar, setUserName } from "@/lib/avatar"
 import { useI18n } from "@/i18n"
 import { useApp } from "@/store/app-context"
 import logoSvg from "@/assets/logo.svg"
+import { SettingsDialog } from "@/components/settings/settings-dialog"
 
 // ── Preset avatars ─────────────────────────────────────────────────────────────
 
@@ -511,10 +512,110 @@ function ProfileSetupStep({ onDone }: { onDone: () => void }) {
   )
 }
 
+// ── Step 3: Model configuration check ────────────────────────────────────────
+
+function ModelCheckStep({ onDone, onOpenSettings }: { onDone: () => void; onOpenSettings: () => void }) {
+  const { t } = useI18n()
+  const [checking, setChecking] = useState(true)
+  const [configured, setConfigured] = useState(false)
+
+  const checkModels = useCallback(async () => {
+    setChecking(true)
+    try {
+      const res = await window.ipc.openclawModelsGet()
+      if (res?.ok) {
+        const result = res as { providers: Record<string, unknown>; defaults: { primary: string } }
+        const hasProviders = result.providers && Object.keys(result.providers).length > 0
+        const hasPrimary = !!result.defaults?.primary
+        if (hasProviders && hasPrimary) {
+          setConfigured(true)
+          return true
+        }
+      }
+    } catch { /* ignore */ }
+    setConfigured(false)
+    setChecking(false)
+    return false
+  }, [])
+
+  useEffect(() => {
+    checkModels().then((ok) => {
+      if (ok) onDone()
+    })
+  }, [checkModels, onDone])
+
+  // Re-check when settings dialog closes
+  const recheck = useCallback(() => {
+    checkModels().then((ok) => {
+      if (ok) onDone()
+    })
+  }, [checkModels, onDone])
+
+  // Expose recheck for parent to call after settings close
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__modelCheckRecheck = recheck
+    return () => { delete (window as unknown as Record<string, unknown>).__modelCheckRecheck }
+  }, [recheck])
+
+  if (checking && !configured) {
+    return (
+      <div className="flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+      </div>
+    )
+  }
+
+  if (configured) return null
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-6 text-center">
+      <img src={logoSvg} alt={APP_NAME} className="h-16 w-auto" />
+
+      <div className="w-[400px] rounded-xl border bg-card p-6 text-left space-y-4 shadow-md">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-base font-semibold">{t("onboarding.modelCheckTitle")}</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {t("onboarding.modelCheckDesc")}
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <Button className="flex-1" onClick={onOpenSettings}>
+            <SettingsIcon className="h-4 w-4 mr-1.5" />
+            {t("onboarding.modelCheckConfigure")}
+          </Button>
+          <Button variant="outline" className="flex-1" onClick={onDone}>
+            {t("onboarding.modelCheckSkip")}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground text-center">
+          {t("onboarding.modelCheckSkipHint")}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ── GatewayLoadingScreen（老用户启动时全屏 loading）──────────────────────────
 // 与 OnboardingFlow 共用 GatewayLoadingStep，但跳过 profile setup 直接进主界面。
 
 export function GatewayLoadingScreen() {
+  // 老用户路径：如果 settings.json 的 dataLocationSelected 被意外清除（卸载重装等），
+  // 主进程会一直等渲染层信号。这里兜底：标记默认 + 触发初始化。
+  useEffect(() => {
+    window.ipc.dataLocationNeedSelect().then((needSelect) => {
+      if (needSelect) {
+        window.ipc.dataLocationUseDefault().then(() => {
+          window.ipc.dataLocationStartInit()
+        })
+      }
+    }).catch(() => { /* ignore */ })
+  }, [])
+
   return (
     <div className="h-screen relative flex items-center justify-center bg-background overflow-hidden"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -552,8 +653,9 @@ interface OnboardingFlowProps {
 
 export function OnboardingFlow({ onDone }: OnboardingFlowProps) {
   const { state } = useApp()
-  const [step, setStep] = useState<"data-location" | "gateway" | "profile">("gateway")
+  const [step, setStep] = useState<"data-location" | "gateway" | "profile" | "model-check">("gateway")
   const [checkingDataLocation, setCheckingDataLocation] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // 首次渲染时检查是否需要选择数据目录
   useEffect(() => {
@@ -623,9 +725,31 @@ export function OnboardingFlow({ onDone }: OnboardingFlowProps) {
           "transition-all duration-300 px-6",
           step === "profile" ? "opacity-100" : "opacity-0 pointer-events-none absolute"
         )}>
-          {step === "profile" && <ProfileSetupStep onDone={onDone} />}
+          {step === "profile" && <ProfileSetupStep onDone={() => setStep("model-check")} />}
+        </div>
+        <div className={cn(
+          "transition-all duration-300",
+          step === "model-check" ? "opacity-100" : "opacity-0 pointer-events-none absolute"
+        )}>
+          {step === "model-check" && (
+            <ModelCheckStep
+              onDone={onDone}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          )}
         </div>
       </div>
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={(open) => {
+          setSettingsOpen(open)
+          if (!open) {
+            // Re-check models after settings dialog closes
+            const recheck = (window as unknown as Record<string, () => void>).__modelCheckRecheck
+            if (recheck) recheck()
+          }
+        }}
+      />
     </div>
   )
 }

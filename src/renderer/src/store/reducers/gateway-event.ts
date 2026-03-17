@@ -15,10 +15,9 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
 
   const agentId = resolveAgentIdFromPayload(payload)
   if (!agentId) {
-    console.warn(`[Reducer:GATEWAY_EVENT] could not resolve agentId from payload, sessionKey=${typeof payload.sessionKey === "string" ? payload.sessionKey : "?"}`)
+    // system-presence and similar events don't have agentId — silently ignore
     return state
   }
-  console.warn(`[Reducer:GATEWAY_EVENT] event=${eventName} agentId=${agentId} sessionKey=${typeof payload.sessionKey === "string" ? payload.sessionKey : "?"}`)
 
   const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : ""
   const groupMatch = sessionKey.match(/^agent:[^:]+:group:(.+)$/)

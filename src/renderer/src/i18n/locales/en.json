@@ -88,7 +88,8 @@
     "createGroupComingSoon": "Coming soon. Stay tuned.",
     "noMessages": "No messages yet",
     "refreshSuccess": "Refreshed",
-    "refreshFailed": "Refresh failed, please try again"
+    "refreshFailed": "Refresh failed, please try again",
+    "loadingAgents": "Loading team members..."
   },
   "newConversation": {
     "title": "Choose a teammate to start chatting",
@@ -364,7 +365,12 @@
     "dataLocationChooseHint": "Click to browse and select a folder",
     "dataLocationDefault": "Use Default Location",
     "dataLocationDefaultHint": "Data will be stored in the system app data directory",
-    "dataLocationConfirm": "Confirm & Continue"
+    "dataLocationConfirm": "Confirm & Continue",
+    "modelCheckTitle": "Configure AI Model",
+    "modelCheckDesc": "No model configuration detected. You need to configure at least one AI model to use the app.",
+    "modelCheckConfigure": "Configure Now",
+    "modelCheckSkip": "Configure Later",
+    "modelCheckSkipHint": "You can configure models anytime in Settings"
   },
   "windowControls": {
     "minimize": "Minimize",
@@ -384,7 +390,11 @@
     "readonly": "Read-only",
     "selectFile": "Select a file to view",
     "emptyFile": "File is empty. Type something and save.",
-    "emptyMemory": "No content"
+    "emptyMemory": "No content",
+    "refresh": "Refresh",
+    "binaryFile": "Binary file, cannot preview",
+    "fileTooLarge": "File too large to preview",
+    "openExternal": "Open with default app"
   },
   "channels": {
     "title": "Channels",
@@ -432,5 +442,39 @@
       "streamingBlock": "Block",
       "streamingProgress": "Progress"
     }
+  },
+  "skills": {
+    "title": "Skills",
+    "subtitle": "Global skills management",
+    "tabInstalled": "Installed",
+    "tabMarketplace": "Marketplace",
+    "installed": "Installed Skills",
+    "refresh": "Refresh",
+    "loading": "Loading...",
+    "noSkills": "No skills available",
+    "retry": "Retry",
+    "enable": "Click to enable",
+    "disable": "Click to disable",
+    "searchPlaceholder": "Search skills...",
+    "searching": "Searching...",
+    "noResults": "No matching skills found",
+    "tryOther": "Try different keywords",
+    "install": "Install",
+    "installing": "Installing...",
+    "installed_badge": "Installed",
+    "installSuccess": "Skill installed successfully",
+    "installFailed": "Installation failed",
+    "version": "v{{version}}",
+    "score": "Relevance",
+    "by": "by",
+    "downloads": "downloads",
+    "explore": "Trending",
+    "exploreHint": "Search for skills on ClawHub marketplace",
+    "marketplaceError": "Failed to fetch marketplace data",
+    "openClawHub": "Browse ClawHub",
+    "changelog": "Changelog",
+    "viewOnClawHub": "View on ClawHub",
+    "malwareBlocked": "This skill has been blocked for malware",
+    "suspicious": "This skill has been flagged as suspicious"
   }
 }
