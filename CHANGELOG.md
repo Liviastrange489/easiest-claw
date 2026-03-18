@@ -14,15 +14,14 @@
 
 ### 新增
 
--
+- OpenClaw 内核升级包打包脚本（`pack-openclaw-upgrade`）和发布脚本（`publish-openclaw-upgrade`）
 
 ### 修复
 
--
-
-### 变更
-
--
+- 重写 OpenClaw 内核升级流程：从 npm install 改为 GitHub Release zip 下载解压，彻底解决无外网环境升级失败问题
+- 修复 Gateway 停止时 `stopGatewayGracefully` 双重 resolve 竞态
+- 修复 `restartBundledGateway` 未检测进程提前退出的问题
+- 修复 CommandDialog 弹框未居中显示
 
 ---
 
