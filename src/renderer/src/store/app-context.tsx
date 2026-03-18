@@ -30,7 +30,8 @@ import {
   loadGroupMessagesFromStorage,
 } from "./app-storage"
 import { uniqueId, parseViewFromHash, extractTextContent, extractImageAttachments } from "./app-utils"
-import { saveAttachmentCacheDb, popAttachmentCacheDb } from "@/lib/db"
+import { saveAttachmentCacheDb, getAttachmentCacheDb } from "@/lib/db"
+import { toast } from "sonner"
 
 function buildWorkspacePrompt(workspacePath: string, content: string): string {  return [
     `【共享工作区 - 重要】`,
@@ -54,7 +55,7 @@ async function prefetchAttachmentOverrides(
       if (m.role !== "user") return []
       if (extractImageAttachments(m.content).length > 0) return []
       const text = extractTextContent(m.content)
-      return popAttachmentCacheDb(convId, text)
+      return getAttachmentCacheDb(convId, text)
     })
   )
 }
@@ -75,7 +76,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Tracks message IDs loaded from storage at startup (must never be re-dispatched)
   const preloadedGroupMsgIds = useRef(new Set<string>())
 
+  const compactionToastRef = useRef<string | number | null>(null)
+
   const handleEvent = useCallback((event: GatewayEvent) => {
+    // Detect compaction events and show toast notifications
+    if (event.type === "gateway.event" && event.event === "agent") {
+      const payload = event.payload as Record<string, unknown> | undefined
+      if (payload && payload.stream === "compaction") {
+        const data = payload.data as Record<string, unknown> | undefined
+        if (data?.phase === "start") {
+          compactionToastRef.current = toast.loading("正在压缩上下文...", {
+            duration: Infinity,
+            description: "历史消息将被摘要化以节省 token",
+          })
+        } else if (data?.phase === "end") {
+          if (compactionToastRef.current != null) {
+            toast.dismiss(compactionToastRef.current)
+            compactionToastRef.current = null
+          }
+          toast.info("上下文已压缩", {
+            description: "早期消息已被摘要替代，可在「历史会话」中查看完整记录",
+            duration: 5000,
+          })
+        }
+      }
+    }
     dispatch({ type: "GATEWAY_EVENT", payload: event })
   }, [])
 
