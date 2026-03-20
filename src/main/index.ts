@@ -256,7 +256,27 @@ async function startInitPipeline(): Promise<void> {
 
   // Start runtime AFTER gateway is ready
   pushStartupLog('正在连接 Gateway...')
+  let lastRuntimeStatusKey = ''
   startRuntime((event) => {
+    const runtimeEvt = event as { type?: string; status?: string; reason?: string | null }
+    if (runtimeEvt.type === 'runtime.status') {
+      const status = runtimeEvt.status ?? 'unknown'
+      const reason = runtimeEvt.reason ?? null
+      const statusKey = `${status}:${reason ?? ''}`
+      if (statusKey !== lastRuntimeStatusKey) {
+        lastRuntimeStatusKey = statusKey
+        if (status === 'connected') {
+          pushStartupLog('Gateway connected')
+        } else if (status === 'reconnecting') {
+          pushStartupLog('Gateway reconnecting' + (reason ? ` (reason: ${reason})` : ''))
+        } else if (status === 'error') {
+          pushStartupLog('Gateway connection error' + (reason ? `: ${reason}` : ''))
+        } else if (status === 'connecting') {
+          pushStartupLog('Connecting Gateway' + (reason ? ` (${reason})` : ''))
+        }
+      }
+    }
+
     if (is.dev) {
       const evt = event as { type: string; event?: string; payload?: unknown }
       if (evt.type === 'gateway.event' && evt.event === 'chat') {
@@ -284,3 +304,4 @@ app.on('window-all-closed', async () => {
     app.quit()
   }
 })
+
