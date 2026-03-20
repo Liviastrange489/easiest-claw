@@ -44,7 +44,7 @@ interface ChatHeaderProps {
 }
 
 export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, onToggleSessionHistory, onAgentAvatarClick }: ChatHeaderProps) {
-  const { state, dispatch, refreshFleet } = useApp()
+  const { state, dispatch, refreshFleet, compactingConversationIds, compactedConversationIds } = useApp()
   const { t } = useI18n()
   const [renameOpen, setRenameOpen] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
@@ -72,6 +72,8 @@ export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, o
           ? t("header.status.thinking")
             : t("header.status.online")
 
+  const isCompactingContext = compactingConversationIds.has(conversation.id)
+  const isContextCompacted = !isCompactingContext && compactedConversationIds.has(conversation.id)
   const handleUnavailableAction = (actionLabel: string) => {
     toast.info(t("header.unavailableAction", { action: actionLabel }))
   }
@@ -133,16 +135,38 @@ export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, o
               </>
             )}
           </div>
-          <div className="text-xs text-muted-foreground truncate">
-            {isGroup ? (
-              conversation.purpose ?? t("common.memberCount", { count: conversation.members.length })
-            ) : agent ? (
-              <span className="flex items-center gap-1">
-                {agent.role && <span>{agent.role}</span>}
-                {agent.role && <span className="text-muted-foreground/40">·</span>}
-                <span>{statusLabel}</span>
-              </span>
-            ) : null}
+          <div className="flex items-center gap-2 min-w-0 text-xs text-muted-foreground">
+            <span className="truncate">
+              {isGroup ? (
+                conversation.purpose ?? t("common.memberCount", { count: conversation.members.length })
+              ) : agent ? (
+                <span className="flex items-center gap-1">
+                  {agent.role && <span>{agent.role}</span>}
+                  {agent.role && <span className="text-muted-foreground/40">{"\u00b7"}</span>}
+                  <span>{statusLabel}</span>
+                </span>
+              ) : null}
+            </span>
+            {(isCompactingContext || isContextCompacted) && (
+              <Badge
+                variant="secondary"
+                className={cn(
+                  "h-5 px-1.5 text-[10px] font-medium shrink-0 border",
+                  isCompactingContext
+                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                )}
+              >
+                {isCompactingContext ? (
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    <span>{"\u6b63\u5728\u538b\u7f29\u4e0a\u4e0b\u6587"}</span>
+                  </span>
+                ) : (
+                  <span>{"\u4e0a\u4e0b\u6587\u5df2\u538b\u7f29"}</span>
+                )}
+              </Badge>
+            )}
           </div>
         </div>
       </div>
