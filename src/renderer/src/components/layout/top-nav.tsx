@@ -1,7 +1,7 @@
 
 
 import { useEffect } from "react"
-import logoSvg from "@/assets/logo.svg"
+import logoPng from "@resources/icon.png"
 import { Bug, Loader2, Wifi, WifiOff } from "lucide-react"
 import { APP_NAME } from "@shared/branding"
 import { cn } from "@/lib/utils"
@@ -46,7 +46,7 @@ export function TopNav(_props: TopNavProps) {
   return (
     <header className="flex h-14 items-center border-b bg-background px-4 gap-4">
       <div className="flex items-center">
-        <img src={logoSvg} alt={APP_NAME} className="h-8 w-auto" />
+        <img src={logoPng} alt={APP_NAME} className="h-8 w-auto" />
       </div>
 
       {/* 连接状态 */}

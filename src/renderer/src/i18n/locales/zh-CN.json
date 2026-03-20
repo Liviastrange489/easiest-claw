@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "EasiestClaw",
+    "title": "{{appName}}",
     "description": "OpenClaw 的人性化交互外壳，让非程序员像用飞书聊天一样指挥 AI 团队干活"
   },
   "common": {
@@ -57,7 +57,7 @@
     },
     "community": {
       "title": "官方社区",
-      "description": "扫描下方二维码加入 EasiestClaw 官方微信群，与其他用户交流使用心得",
+      "description": "扫描下方二维码加入 {{appName}} 官方微信群，与其他用户交流使用心得",
       "qrTip": "微信扫一扫，加入官方群"
     },
     "language": {
@@ -361,7 +361,7 @@
     "noAgents": "暂无 Agent，请先连接 OpenClaw"
   },
   "onboarding": {
-    "title": "欢迎使用 EasiestClaw",
+    "title": "欢迎使用 {{appName}}",
     "subtitle": "先简单设置一下，让 AI 团队认识你",
     "avatarSectionTitle": "选择头像",
     "nameSectionTitle": "你的名字",

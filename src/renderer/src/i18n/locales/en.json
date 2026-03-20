@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "EasiestClaw - AI Virtual Company",
+    "title": "{{appName}} - AI Virtual Company",
     "description": "A human-friendly OpenClaw shell that lets non-programmers direct an AI team as naturally as chat."
   },
   "common": {
@@ -40,7 +40,7 @@
     "comingSoon": "Coming soon"
   },
   "settings": {
-    "backToApp": "Back to EasiestClaw",
+    "backToApp": "Back to {{appName}}",
     "sections": {
       "models": "Model Config",
       "gateway": "Gateway",
@@ -57,7 +57,7 @@
     },
     "community": {
       "title": "Official Community",
-      "description": "Scan the QR code below to join the EasiestClaw official WeChat group",
+      "description": "Scan the QR code below to join the {{appName}} official WeChat group",
       "qrTip": "Scan with WeChat to join"
     },
     "language": {
@@ -361,7 +361,7 @@
     "noAgents": "No agents found. Please connect to OpenClaw first."
   },
   "onboarding": {
-    "title": "Welcome to EasiestClaw AI",
+    "title": "Welcome to {{appName}}",
     "subtitle": "Quick setup so your AI team knows who you are",
     "avatarSectionTitle": "Choose an avatar",
     "nameSectionTitle": "Your name",

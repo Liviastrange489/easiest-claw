@@ -1,22 +1,25 @@
 /**
- * app.config.mjs — 品牌与应用身份配置（单一维护入口）
+ * 品牌与应用标识统一配置（单一入口）
  *
- * Fork 后只需修改这里，然后运行 `pnpm run brand` 即可同步所有相关文件。
- * 图标文件另行替换 resources/icon.png / icon.ico / icon.icns 后重新构建即可。
+ * 修改后执行：`npm run brand`
+ * 会同步更新：
+ * - src/shared/branding.ts
+ * - resources/installer.nsh
+ * - package.json (description / build.appId / build.productName)
+ * - src/renderer/index.html (<title>)
  *
- * 运行后会更新：
- *   src/shared/branding.ts    — TypeScript 常量（main + renderer 使用）
- *   resources/installer.nsh  — Windows NSIS 安装脚本
- *   package.json              — description / build.appId / build.productName
+ * 推荐长期策略：
+ * - appName：可中文（用户可见）
+ * - appId / productName / firewallRuleName：建议英文 ASCII（系统字段）
  */
 
 export default {
-  // ── 应用身份 ────────────────────────────────────────────────────────────────
-  appName:         'EasiestClaw',                    // UI 显示名称
-  appId:           'com.EasiestClaw.desktop',         // 反向域名，需全局唯一
-  productName:     'EasiestClaw',                    // 安装包 / Dock 名称
-  description:     'EasiestClaw Desktop - OpenClaw GUI',
+  // 用户可见名称（界面标题、欢迎文案等）
+  appName: 'EasiestClaw',
 
-  // ── Windows 防火墙 ───────────────────────────────────────────────────────────
-  firewallRuleName: 'EasiestClaw',                   // Windows Defender 规则名称
+  // 系统字段：建议保持英文 ASCII
+  appId: 'com.EasiestClaw.desktop',
+  productName: 'EasiestClaw',
+  description: 'EasiestClaw',
+  firewallRuleName: 'EasiestClaw',
 }

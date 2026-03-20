@@ -1,11 +1,12 @@
 {
   "name": "easiest-claw-desktop",
   "version": "0.0.31-beta",
-  "description": "EasiestClaw Desktop - OpenClaw GUI",
+  "description": "EasiestClaw",
   "main": "./out/main/index.js",
   "private": true,
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run dev:prepare-openclaw && electron-vite dev",
+    "dev:prepare-openclaw": "node scripts/ensure-openclaw-cache.mjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "brand": "node scripts/apply-branding.mjs",

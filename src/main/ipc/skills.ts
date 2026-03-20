@@ -5,9 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { gw } from './gw'
 import { isRecord, readOpenclawConfig as readConfig, writeOpenclawConfig as writeConfig } from '../lib/openclaw-config'
+import { APP_ID } from '@shared/branding'
 
 const SKILLS_SH_BASE = 'https://skills.sh'
 const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com'
+const DESKTOP_USER_AGENT = `${APP_ID}-desktop/1.0`
 
 // ── In-memory cache to avoid rate limits ─────────────────────────────────────
 interface CacheEntry<T> { data: T; expiresAt: number }
@@ -46,7 +48,7 @@ async function fetchText(url: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const request = net.request({ url, method: 'GET' })
     request.setHeader('Accept', 'text/html,application/json')
-    request.setHeader('User-Agent', 'EasiestClaw-Desktop/1.0')
+    request.setHeader('User-Agent', DESKTOP_USER_AGENT)
     let body = ''
     request.on('response', (response) => {
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -66,7 +68,7 @@ async function fetchText(url: string): Promise<string> {
 async function fetchToFile(url: string, destPath: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const request = net.request({ url, method: 'GET' })
-    request.setHeader('User-Agent', 'EasiestClaw-Desktop/1.0')
+    request.setHeader('User-Agent', DESKTOP_USER_AGENT)
     request.on('response', (response) => {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         let body = ''

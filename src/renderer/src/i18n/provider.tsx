@@ -18,6 +18,7 @@ import {
   resolveLocaleFromNavigator,
 } from "./config"
 import { translateMessage } from "./messages"
+import { APP_NAME } from "@shared/branding"
 import type { Locale, LocalePreference, Translate, TranslationValues } from "./types"
 
 interface LanguageContextValue {
@@ -94,7 +95,7 @@ export function LanguageProvider({
 
   const t = useCallback(
     (key: string, values?: TranslationValues) =>
-      translateMessage(locale, key, values),
+      translateMessage(locale, key, { appName: APP_NAME, ...values }),
     [locale]
   )
 

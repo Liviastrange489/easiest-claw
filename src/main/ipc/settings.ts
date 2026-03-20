@@ -7,8 +7,9 @@ import { loadSettings, patchSettings, loadOpenclawDefaults } from '../gateway/se
 import { restartRuntime } from '../gateway/runtime'
 import { getDataDir } from '../lib/data-dir'
 import { logger } from '../lib/logger'
+import { APP_ID } from '@shared/branding'
 
-const REG_KEY = 'HKCU\\Software\\EasiestClaw'
+const REG_KEY = `HKCU\\Software\\${APP_ID}`
 
 /**
  * 同步自定义数据目录到 Windows 注册表（供 NSIS 卸载脚本读取）。

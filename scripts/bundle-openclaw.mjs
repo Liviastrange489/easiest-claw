@@ -28,7 +28,17 @@ const root = join(__dir, '..')
 
 // ── 优先使用本地 openclaw 源（../openclaw），不存在时回退到 npm 注册表 ──────────
 const LOCAL_SRC = join(root, '..', 'openclaw')
-const useLocal = existsSync(join(LOCAL_SRC, 'package.json'))
+const localSrcExists = existsSync(join(LOCAL_SRC, 'package.json'))
+const sourceModeRaw = String(process.env.OPENCLAW_SOURCE ?? 'auto').trim().toLowerCase()
+const sourceMode = sourceModeRaw === 'local' || sourceModeRaw === 'npm' || sourceModeRaw === 'auto'
+  ? sourceModeRaw
+  : 'auto'
+
+if (sourceMode === 'local' && !localSrcExists) {
+  throw new Error(`[bundle-openclaw] OPENCLAW_SOURCE=local, but local source not found: ${LOCAL_SRC}`)
+}
+
+const useLocal = sourceMode === 'local' ? true : sourceMode === 'npm' ? false : localSrcExists
 
 let VERSION = '2026.3.12'
 if (useLocal) {
@@ -41,6 +51,9 @@ if (useLocal) {
 const REGISTRY = process.env.npm_config_registry ?? 'https://registry.npmmirror.com'
 const TMP = join(root, 'build', '_openclaw_tmp')
 const OUT = join(root, 'build', 'openclaw')
+const BUNDLE_META_FILE = join(OUT, '.bundle-meta.json')
+
+console.log(`[bundle-openclaw] source mode=${sourceMode}, resolved=${useLocal ? 'local' : 'npm'}`)
 
 // ── 真实阻塞睡眠（Atomics.wait，不占用 CPU）────────────────────────────────────
 function sleepSync(ms) {
@@ -341,6 +354,14 @@ writeFileSync(join(root, 'build', 'openclaw.version'), VERSION)
 console.log(`[bundle-openclaw] ✓ openclaw.version = ${VERSION}`)
 
 const fmtMB = (b) => (b / 1024 / 1024).toFixed(1)
+const bundleMeta = {
+  source: useLocal ? 'local' : 'npm',
+  requestedSource: sourceMode,
+  openclawVersion: VERSION,
+  registry: REGISTRY,
+  builtAt: new Date().toISOString(),
+}
+writeFileSync(BUNDLE_META_FILE, JSON.stringify(bundleMeta, null, 2) + '\n', 'utf8')
 console.log(`[bundle-openclaw] ✓ openclaw-core.zip   (${fmtMB(sizeCore)} MB)`)
 console.log(`[bundle-openclaw] ✓ openclaw-mods-a.zip (${fmtMB(sizeA)} MB)`)
 console.log(`[bundle-openclaw] ✓ openclaw-mods-b.zip (${fmtMB(sizeB)} MB)`)

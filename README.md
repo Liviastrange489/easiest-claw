@@ -101,6 +101,7 @@ npm run dev
 | `npm run fix:encoding` | 自动移除文本文件 UTF-8 BOM |
 | `npm run setup:githooks` | 安装本地 Git 钩子（提交前自动检查编码） |
 | `npm run lint` | 对 `.ts` / `.tsx` 文件执行 ESLint |
+| `npm run brand` | 根据 `app.config.mjs` 同步品牌配置到项目文件 |
 | `npm run build:win` | 打包 Windows 安装包（NSIS） |
 | `npm run build:mac` | 打包 macOS 安装包（DMG） |
 | `npm run build:linux` | 打包 Linux 安装包（AppImage） |
@@ -108,6 +109,62 @@ npm run dev
 编译产物输出至 `out/`，安装包输出至 `dist/`。
 
 编码与行尾规范详见：[docs/文本编码治理.md](docs/文本编码治理.md)。
+
+## 品牌配置与升级兼容（必读）
+
+品牌统一在 `app.config.mjs` 配置，修改后执行 `npm run brand`，会自动同步到：
+
+- `src/shared/branding.ts`
+- `resources/installer.nsh`
+- `package.json`（`description` / `build.appId` / `build.productName`）
+- `src/renderer/index.html`（`<title>`）
+
+推荐长期配置策略：
+
+- `appName`：可使用中文（用户可见名称）
+- `appId`：建议固定英文反向域名（系统标识）
+- `productName`：建议固定英文（安装产物名、可执行文件名）
+- `firewallRuleName`：建议固定英文（Windows 防火墙规则名）
+
+### 为什么要这样分离
+
+- `appName` 主要影响 UI 文案与窗口标题。
+- `appId` / `productName` / `firewallRuleName` 影响系统层行为，建议保持 ASCII 英文，降低脚本与系统兼容风险。
+
+### Windows 注册表的用途
+
+应用会在 Windows 上写入注册表键：
+
+- 键路径：`HKCU\Software\<APP_ID>`
+- 关键值：`DataDir`
+- 作用：记录用户自定义数据目录，供卸载流程读取并清理（可选）。
+
+### Windows 防火墙规则的用途
+
+安装时会尝试通过 `netsh` 添加入站规则，卸载时删除对应规则：
+
+- 规则名：`firewallRuleName`
+- 作用：减少首次运行时被系统网络拦截弹窗打断。
+
+### 对已安装用户的升级兼容建议
+
+若已有用户在使用旧版本，建议 **不要随意变更** 以下字段：
+
+- `appId`
+- `productName`
+- `firewallRuleName`
+
+否则可能出现以下影响：
+
+- 被系统识别为新应用，无法平滑覆盖升级
+- 默认数据目录变化，用户看起来像“丢配置”
+- 旧注册表键或旧防火墙规则残留
+
+因此，常规品牌定制优先只改：
+
+- Logo
+- `appName`
+- UI 文案
 
 ## 项目结构
 

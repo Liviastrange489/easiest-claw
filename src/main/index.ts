@@ -217,17 +217,27 @@ function pushStartupLog(text: string): void {
 }
 
 async function startInitPipeline(): Promise<void> {
+  const describeError = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error)
+
   // 数据目录迁移（在解压前执行，避免解压到旧位置）
   pushStartupLog('检查数据目录...')
   await migrateDataDirIfNeeded()
 
   // 防火墙规则 + 解压并行执行
   pushStartupLog('初始化环境（防火墙规则 + 解压 OpenClaw）...')
-  await Promise.all([
+  const initResults = await Promise.allSettled([
     ensureFirewallRule(),
     extractOpenClawIfNeeded(mainWindow, process.resourcesPath),
   ])
-  pushStartupLog('环境初始化完成')
+  const rejected = initResults.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+  if (rejected.length > 0) {
+    for (const failure of rejected) {
+      pushStartupLog(`环境初始化警告：${describeError(failure.reason)}（将继续启动）`)
+    }
+  } else {
+    pushStartupLog('环境初始化完成')
+  }
 
   // Gateway 进程日志 → 渲染进程
   addGatewayLogListener((line, isError) => {

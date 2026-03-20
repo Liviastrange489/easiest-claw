@@ -7,7 +7,6 @@
 ; 通过 MUI_PAGE_CUSTOMFUNCTION_SHOW 在安装页面显示时写入提示文字，
 ; 因为 electron-builder 的 installSection.nsh 会在 section 开头设 SetDetailsPrint none，
 ; 但 SHOW 回调在 section 执行前触发，此时写入的文字会保留在日志面板中。
-
 !macro customHeader
   ShowInstDetails nevershow
   ShowUnInstDetails show
@@ -16,7 +15,6 @@
 !macro customInstall
   SetDetailsPrint both
   DetailPrint "程序文件安装完成。"
-
   DetailPrint "正在配置 Windows 防火墙规则..."
   DetailPrint "删除旧规则（如存在）..."
   nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="EasiestClaw"'
@@ -27,21 +25,19 @@
   DetailPrint "防火墙规则配置完成。"
 !macroend
 
-; 卸载时跳过逐文件原子操作（openclaw node_modules 文件极多，会导致卸载极慢），
-; 直接批量删除整个安装目录
 !macro customUnInit
   SetDetailsPrint both
   DetailPrint "正在准备卸载..."
 !macroend
 
+; 卸载时跳过逐文件原子操作（openclaw node_modules 文件极多，会导致卸载极慢），
+; 直接批量删除整个安装目录
 !macro customRemoveFiles
   SetDetailsPrint both
   DetailPrint "正在删除程序文件，请稍候..."
-  ; 用 rd /s /q 替代 NSIS 逐文件删除，处理 node_modules 海量文件快几个量级
-  nsExec::ExecToStack 'cmd /c rd /s /q "$INSTDIR"'
-  Pop $0
-  ; rd 只能删内容不删自身（如果当前目录在其中），兜底清理
-  RMDir $INSTDIR
+  SetDetailsPrint none
+  RMDir /r $INSTDIR
+  SetDetailsPrint both
   DetailPrint "程序文件删除完成。"
 !macroend
 
@@ -55,29 +51,13 @@
   ; 升级安装时，新安装包会静默（/S）调用旧版卸载程序，此时跳过用户数据清理弹窗
   IfSilent done
 
-  ; 手动卸载时才询问用户是否同时清除用户数据
+  ; 手动卸载时才询问用户是否同时清除 AppData 中的用户设置与数据
   MessageBox MB_YESNO|MB_ICONQUESTION \
-    "是否同时删除用户设置和数据？$\n$\n\
-选择「是」将彻底清除所有数据（包括配置、缓存和 OpenClaw 运行时），$\n\
-选择「否」则保留，重新安装后可自动恢复。" \
+    "是否同时删除 EasiestClaw 的用户设置和缓存数据？$\n$\n\
+选择「是」将彻底清除（AppData\Roaming\EasiestClaw），$\n\
+选择「否」则保留，重新安装后可自动恢复设置。" \
     IDNO done
-
-  ; 删除默认 userData 目录（rd /s /q 比 RMDir /r 快很多）
-  nsExec::ExecToStack 'cmd /c rd /s /q "$APPDATA\easiest-claw-desktop"'
-  Pop $0
-  DetailPrint "默认用户数据已清除。"
-
-  ; 删除自定义数据目录（从注册表读取）
-  ReadRegStr $0 HKCU "Software\EasiestClaw" "DataDir"
-  ${If} $0 != ""
-    nsExec::ExecToStack 'cmd /c rd /s /q "$0"'
-    Pop $1
-    DetailPrint "自定义数据目录已清除: $0"
-  ${EndIf}
-
-  ; 清理注册表
-  DeleteRegKey HKCU "Software\EasiestClaw"
-  DetailPrint "用户数据已全部清除。"
-
+  RMDir /r "$APPDATA\EasiestClaw"
+  DetailPrint "用户数据已清除。"
   done:
 !macroend

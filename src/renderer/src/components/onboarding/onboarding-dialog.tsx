@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import { markOnboardingDone, setUserAvatar, setUserName } from "@/lib/avatar"
 import { useI18n } from "@/i18n"
+import { APP_NAME } from "@shared/branding"
 
 // ── Offline-friendly preset avatars (emoji + color, rendered via canvas) ──────
 
@@ -132,7 +133,7 @@ export function OnboardingDialog({ open, onDone }: OnboardingDialogProps) {
         {/* Header */}
         <div className="bg-primary/5 px-6 py-6 text-center border-b">
           <div className="text-3xl mb-2">👋</div>
-          <h2 className="text-lg font-semibold">{t("onboarding.title")}</h2>
+          <h2 className="text-lg font-semibold">{t("onboarding.title", { appName: APP_NAME })}</h2>
           <p className="text-xs text-muted-foreground mt-1">{t("onboarding.subtitle")}</p>
         </div>
 

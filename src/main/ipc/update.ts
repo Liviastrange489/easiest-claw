@@ -18,6 +18,7 @@ import {
 import { findOpenclawDir } from '../lib/openclaw-paths'
 import { getDataDir } from '../lib/data-dir'
 import { logger } from '../lib/logger'
+import { APP_ID } from '@shared/branding'
 
 // ── GitHub Release 配置 ──────────────────────────────────────────────────────
 const GITHUB_REPO = 'Zmmmmy/easiest-claw-open-claw-upgrade'
@@ -35,6 +36,7 @@ const DOWNLOAD_MIRRORS = [
 ]
 
 const ZIP_NAMES = ['openclaw-core.zip', 'openclaw-mods-a.zip', 'openclaw-mods-b.zip'] as const
+const DESKTOP_USER_AGENT = `${APP_ID}-desktop`
 
 // ── 路径工具 ─────────────────────────────────────────────────────────────────
 const getOpenclawDir = findOpenclawDir
@@ -67,7 +69,7 @@ async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
       const data = await new Promise<string>((resolve, reject) => {
         const req = https.get(apiUrl, {
           timeout: 15_000,
-          headers: { 'User-Agent': 'EasiestClaw-Desktop', Accept: 'application/vnd.github.v3+json' },
+          headers: { 'User-Agent': DESKTOP_USER_AGENT, Accept: 'application/vnd.github.v3+json' },
         }, (res) => {
           if (res.statusCode !== 200) { res.resume(); reject(new Error(`HTTP ${res.statusCode}`)); return }
           let body = ''
@@ -122,7 +124,7 @@ function httpGet(url: string, timeout = 60_000): Promise<http.IncomingMessage> {
     const protocol = url.startsWith('https') ? https : http
     const req = protocol.get(url, {
       timeout,
-      headers: { 'User-Agent': 'EasiestClaw-Desktop' },
+      headers: { 'User-Agent': DESKTOP_USER_AGENT },
     }, (res) => {
       if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
         res.resume()

@@ -1,4 +1,4 @@
-﻿; installer.nsh — {{APP_NAME}} 自定义 NSIS 安装钩子
+; installer.nsh — {{APP_NAME}} 自定义 NSIS 安装钩子
 ; 在安装/卸载时自动添加/删除 Windows Defender 防火墙规则，
 ; 避免用户首次启动时收到"是否允许连接网络"的拦截弹窗。
 ; ⚠️  此文件由 scripts/apply-branding.mjs 从 installer.nsh.template 自动生成，请勿直接编辑。
@@ -17,10 +17,10 @@
   DetailPrint "程序文件安装完成。"
   DetailPrint "正在配置 Windows 防火墙规则..."
   DetailPrint "删除旧规则（如存在）..."
-  nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="{{APP_NAME}}"'
+  nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="{{FIREWALL_RULE_NAME}}"'
   Pop $0
   DetailPrint "添加入站规则（TCP 18789）..."
-  nsExec::ExecToStack 'netsh advfirewall firewall add rule name="{{APP_NAME}}" dir=in action=allow program="$INSTDIR\{{PRODUCT_NAME}}.exe" enable=yes'
+  nsExec::ExecToStack 'netsh advfirewall firewall add rule name="{{FIREWALL_RULE_NAME}}" dir=in action=allow program="$INSTDIR\{{PRODUCT_NAME}}.exe" enable=yes'
   Pop $0
   DetailPrint "防火墙规则配置完成。"
 !macroend
@@ -44,7 +44,7 @@
 !macro customUnInstall
   SetDetailsPrint both
   DetailPrint "正在移除 Windows 防火墙规则..."
-  nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="{{APP_NAME}}"'
+  nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="{{FIREWALL_RULE_NAME}}"'
   Pop $0
   DetailPrint "防火墙规则已移除。"
 

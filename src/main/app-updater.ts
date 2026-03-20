@@ -88,12 +88,8 @@ export function initAppUpdater(win: BrowserWindow): void {
     send({ status: 'error', error: err.message })
   })
 
-  // 启动后 5 秒静默检查（不干扰启动流程）
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((e: Error) => {
-      logger.error(`[AppUpdater] checkForUpdates failed: ${e.message}`)
-    })
-  }, 5000)
+  // 不在启动阶段自动检查更新，避免打断主流程。
+  // 用户通过设置页“检查更新”主动触发。
 }
 
 export function registerAppUpdaterHandlers(ipcMain: IpcMain): void {

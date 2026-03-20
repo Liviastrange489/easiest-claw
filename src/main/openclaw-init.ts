@@ -23,6 +23,8 @@ let _extractPercent = 0
 let _upgradeFrom = ''
 let _upgradeTo = ''
 let _pendingUpgrade: { resolve: (confirmed: boolean) => void } | null = null
+const EXTRACT_WORKER_STALL_TIMEOUT_MS = Number(process.env.OPENCLAW_EXTRACT_WORKER_STALL_TIMEOUT_MS ?? '45000')
+const EXTRACT_WORKER_MAX_TIMEOUT_MS = Number(process.env.OPENCLAW_EXTRACT_WORKER_MAX_TIMEOUT_MS ?? '300000')
 
 export function getExtractState(): {
   phase: ExtractPhase
@@ -141,20 +143,13 @@ export async function extractOpenClawIfNeeded(
         _extractPhase = 'skipped'
         return
       }
-      // 版本不同：已安装旧版，询问用户是否升级
-      logger.info(`[Extract] version change detected: ${installedVersion} -> ${currentVersion}, awaiting user decision`)
+      // 版本不同：启动阶段不打断主流程，不弹确认，保留已安装版本继续启动。
+      // 用户可在设置页手动触发 OpenClaw 升级。
+      logger.info(`[Extract] version change detected: ${installedVersion} -> ${currentVersion}, skip auto-upgrade on startup`)
       _upgradeFrom = installedVersion
       _upgradeTo = currentVersion
-      _extractPhase = 'upgrade-available'
-      const confirmed = await new Promise<boolean>((resolve) => {
-        _pendingUpgrade = { resolve }
-      })
-      if (!confirmed) {
-        logger.info('[Extract] user skipped upgrade, keeping installed version')
-        _extractPhase = 'skipped'
-        return
-      }
-      logger.info('[Extract] user confirmed upgrade, extracting')
+      _extractPhase = 'skipped'
+      return
     } catch {
       // 读取标记文件失败：视为首次安装，直接解压
     }
@@ -194,9 +189,59 @@ export async function extractOpenClawIfNeeded(
           eval: true,
           workerData: { zipPath, destDir: extractRoot, admZipPath },
         })
+        let settled = false
+        let lastProgressAt = Date.now()
+        let stallTimer: NodeJS.Timeout | null = null
+        let maxTimer: NodeJS.Timeout | null = null
+
+        const cleanupTimers = (): void => {
+          if (stallTimer) clearInterval(stallTimer)
+          if (maxTimer) clearTimeout(maxTimer)
+          stallTimer = null
+          maxTimer = null
+        }
+
+        const settleResolve = (): void => {
+          if (settled) return
+          settled = true
+          cleanupTimers()
+          resolve()
+        }
+
+        const settleReject = (error: Error): void => {
+          if (settled) return
+          settled = true
+          cleanupTimers()
+          reject(error)
+        }
+
+        const terminateWorker = async (reason: string): Promise<void> => {
+          try {
+            logger.error(`[Extract] ${reason}, terminating worker: ${zipPath}`)
+            await worker.terminate()
+          } catch (err) {
+            logger.warn(`[Extract] terminate worker failed (${zipPath}): ${String(err)}`)
+          }
+        }
+
+        stallTimer = setInterval(() => {
+          if (settled) return
+          if (Date.now() - lastProgressAt < EXTRACT_WORKER_STALL_TIMEOUT_MS) return
+          const err = new Error(`Extract stalled for ${Math.round(EXTRACT_WORKER_STALL_TIMEOUT_MS / 1000)}s`)
+          void terminateWorker(err.message)
+          settleReject(err)
+        }, 5000)
+
+        maxTimer = setTimeout(() => {
+          if (settled) return
+          const err = new Error(`Extract worker exceeded ${Math.round(EXTRACT_WORKER_MAX_TIMEOUT_MS / 1000)}s`)
+          void terminateWorker(err.message)
+          settleReject(err)
+        }, EXTRACT_WORKER_MAX_TIMEOUT_MS)
 
         worker.on('message', (msg: { type: string; extracted?: number; total?: number; file?: string; message?: string; failedCount?: number; failedEntries?: { name: string; error: string }[] }) => {
           if (msg.type === 'progress' && msg.extracted !== undefined && msg.total !== undefined) {
+            lastProgressAt = Date.now()
             workerProgress[zipPath] = { extracted: msg.extracted, total: msg.total }
             const totalExtracted = Object.values(workerProgress).reduce((s, p) => s + p.extracted, 0)
             const totalFiles = Object.values(workerProgress).reduce((s, p) => s + p.total, 0)
@@ -211,22 +256,25 @@ export async function extractOpenClawIfNeeded(
             } else {
               logger.info(`[Extract] worker done: ${zipPath}`)
             }
-            resolve()
+            settleResolve()
           } else if (msg.type === 'error') {
             logger.error(`[Extract] worker error (${zipPath}): ${msg.message}`)
-            reject(new Error(msg.message))
+            settleReject(new Error(msg.message))
           }
         })
 
         worker.on('error', (err) => {
           logger.error(`[Extract] worker exception (${zipPath}): ${err}`)
-          reject(err)
+          settleReject(err instanceof Error ? err : new Error(String(err)))
         })
         worker.on('exit', (code) => {
+          if (settled) return
           if (code !== 0) {
             logger.error(`[Extract] worker exited abnormally code=${code} (${zipPath})`)
-            reject(new Error(`Worker exited with code ${code}`))
+            settleReject(new Error(`Worker exited with code ${code}`))
+            return
           }
+          settleResolve()
         })
       })
   )

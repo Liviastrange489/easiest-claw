@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
 import { markOnboardingDone, setUserAvatar, setUserName } from "@/lib/avatar"
 import { useI18n } from "@/i18n"
 import { useApp } from "@/store/app-context"
-import logoSvg from "@/assets/logo.svg"
+import logoPng from "@resources/icon.png"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 
 // ── Preset avatars ─────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ function DataLocationStep({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 text-center">
-      <img src={logoSvg} alt={APP_NAME} className="h-16 w-auto" />
+      <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
 
       <div className="space-y-1">
         <h1 className="text-xl font-semibold">{t("onboarding.dataLocationTitle")}</h1>
@@ -242,7 +242,7 @@ function GatewayLoadingStep() {
   if (upgradeInfo) {
     return (
       <div className="flex flex-col items-center justify-center gap-6 text-center">
-        <img src={logoSvg} alt={APP_NAME} className="h-16 w-auto" />
+        <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
         <div className="w-[400px] rounded-xl border bg-card p-6 text-left space-y-4 shadow-md">
           <h2 className="text-base font-semibold">{t("onboarding.upgradeTitle")}</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
@@ -274,7 +274,7 @@ function GatewayLoadingStep() {
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 text-center">
-      <img src={logoSvg} alt={APP_NAME} className="h-16 w-auto" />
+      <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
 
       <div className="space-y-1">
         <h1 className="text-xl font-semibold">{APP_NAME}</h1>
@@ -429,7 +429,7 @@ function ProfileSetupStep({ onDone }: { onDone: () => void }) {
       {/* Header */}
       <div className="text-center space-y-1">
         <div className="text-3xl mb-2">👋</div>
-        <h2 className="text-lg font-semibold">{t("onboarding.title")}</h2>
+        <h2 className="text-lg font-semibold">{t("onboarding.title", { appName: APP_NAME })}</h2>
         <p className="text-xs text-muted-foreground">{t("onboarding.subtitle")}</p>
       </div>
 
@@ -583,7 +583,7 @@ function ModelCheckStep({ onDone, onOpenSettings }: { onDone: () => void; onOpen
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 text-center">
-      <img src={logoSvg} alt={APP_NAME} className="h-16 w-auto" />
+      <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
 
       <div className="w-[400px] rounded-xl border bg-card p-6 text-left space-y-4 shadow-md">
         <div className="flex items-start gap-3">
