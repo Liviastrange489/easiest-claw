@@ -201,6 +201,14 @@ export class GatewayAdapter {
       }
     }
 
+    // ── 清理旧连接：防止重连时两个 WebSocket 同时存在 ─────────────────────────
+    if (this.ws) {
+      const oldWs = this.ws
+      this.ws = null
+      oldWs.removeAllListeners()
+      oldWs.terminate()
+    }
+
     const settings = this.loadGatewaySettings()
     console.log(`[GatewayAdapter] Connecting to ${settings.url} (attempt ${this.reconnectAttempt + 1})`)
     this.connectionEpoch = randomUUID()

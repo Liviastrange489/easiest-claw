@@ -27,7 +27,8 @@
     "settings": "Settings",
     "changeMyAvatar": "Change my avatar",
     "changeMyAvatarDescription": "After you confirm, a file picker opens and the selected image replaces your current avatar immediately.",
-    "channels": "Channels"
+    "channels": "Channels",
+    "plugins": "Plugins"
   },
   "topNav": {
     "connection": {
@@ -498,5 +499,33 @@
     "detailTitle": "Skill details",
     "files": "Files",
     "noFiles": "No files found"
+  },
+  "plugins": {
+    "title": "Plugins",
+    "description": "View and manage installed OpenClaw plugins",
+    "empty": "No plugins installed",
+    "loading": "Loading plugins...",
+    "refresh": "Refresh",
+    "search": "Search plugins...",
+    "uninstall": "Uninstall",
+    "uninstalling": "Uninstalling...",
+    "uninstallConfirmTitle": "Confirm uninstall",
+    "uninstallConfirmDesc": "Are you sure you want to uninstall \"{{name}}\"? This will remove plugin files and configuration. This cannot be undone.",
+    "uninstallSuccess": "Plugin \"{{name}}\" has been uninstalled",
+    "uninstallError": "Uninstall failed: {{error}}",
+    "cannotUninstallBundled": "Built-in plugins cannot be uninstalled",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "origin": {
+      "bundled": "Built-in",
+      "installed": "Installed",
+      "load-path": "Local"
+    },
+    "kind": {
+      "memory": "Memory",
+      "context-engine": "Context Engine"
+    },
+    "version": "Version",
+    "restartHint": "Restart gateway for changes to take effect"
   }
 }

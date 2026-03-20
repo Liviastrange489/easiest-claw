@@ -27,7 +27,8 @@
     "settings": "设置",
     "changeMyAvatar": "更换个人头像",
     "changeMyAvatarDescription": "确认后将打开文件选择器，选择图片后会立即替换当前头像。",
-    "channels": "渠道"
+    "channels": "渠道",
+    "plugins": "插件"
   },
   "topNav": {
     "connection": {
@@ -498,5 +499,33 @@
     "detailTitle": "技能详情",
     "files": "文件列表",
     "noFiles": "未找到文件"
+  },
+  "plugins": {
+    "title": "插件管理",
+    "description": "查看和管理已安装的 OpenClaw 插件",
+    "empty": "暂无已安装的插件",
+    "loading": "加载插件列表...",
+    "refresh": "刷新",
+    "search": "搜索插件...",
+    "uninstall": "卸载",
+    "uninstalling": "卸载中...",
+    "uninstallConfirmTitle": "确认卸载插件",
+    "uninstallConfirmDesc": "确定要卸载插件「{{name}}」吗？此操作将删除插件文件和配置，无法撤销。",
+    "uninstallSuccess": "插件「{{name}}」已卸载",
+    "uninstallError": "卸载失败：{{error}}",
+    "cannotUninstallBundled": "内置插件不可卸载",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "origin": {
+      "bundled": "内置",
+      "installed": "已安装",
+      "load-path": "本地加载"
+    },
+    "kind": {
+      "memory": "记忆",
+      "context-engine": "上下文引擎"
+    },
+    "version": "版本",
+    "restartHint": "卸载后需重启 gateway 生效"
   }
 }

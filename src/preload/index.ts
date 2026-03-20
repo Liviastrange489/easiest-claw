@@ -287,6 +287,11 @@ const ipcApi = {
   channelsSet: (params: { channelId: string; config: Record<string, unknown> }) =>
     ipcRenderer.invoke('openclaw:channels:set', params),
 
+  // ── Plugins ────────────────────────────────────────────────────────────────
+  pluginsList: () => ipcRenderer.invoke('openclaw:plugins:list'),
+  pluginsUninstall: (params: { pluginId: string }) =>
+    ipcRenderer.invoke('openclaw:plugins:uninstall', params),
+
   // ── Data location (onboarding) ──────────────────────────────────────────────
   dataLocationNeedSelect: (): Promise<boolean> =>
     ipcRenderer.invoke('data-location:need-select'),
