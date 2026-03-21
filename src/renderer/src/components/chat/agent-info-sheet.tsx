@@ -23,6 +23,33 @@ type ToolEntry = {
   optional?: boolean
 }
 
+function readModelPrimary(input: unknown): string {
+  if (typeof input === "string") return input.trim()
+  if (input && typeof input === "object") {
+    const primary = (input as Record<string, unknown>).primary
+    if (typeof primary === "string") return primary.trim()
+  }
+  return ""
+}
+
+function parseAgentModelFromAgentsList(raw: unknown, agentId: string): string {
+  const result = raw as { agents?: unknown[] } | unknown[]
+  const list = Array.isArray(result)
+    ? result
+    : Array.isArray((result as { agents?: unknown[] })?.agents)
+      ? ((result as { agents: unknown[] }).agents)
+      : []
+  for (const item of list) {
+    const rec = item as Record<string, unknown>
+    const id = typeof rec.id === "string"
+      ? rec.id
+      : (typeof rec.agentId === "string" ? rec.agentId : "")
+    if (id !== agentId) continue
+    return readModelPrimary(rec.model)
+  }
+  return ""
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -54,10 +81,12 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
   const [files, setFiles] = useState<FileEntry[]>([])
   const [cronJobs, setCronJobs] = useState<CronJob[]>([])
   const [defaultModel, setDefaultModel] = useState("")
+  const [agentModel, setAgentModel] = useState("")
   const [tools, setTools] = useState<ToolEntry[]>([])
   const [memorySummary, setMemorySummary] = useState("")
   const [dailyMemoryCount, setDailyMemoryCount] = useState(0)
   const [loading, setLoading] = useState(false)
+  const effectiveModel = (agentModel || defaultModel).trim()
 
   useEffect(() => {
     if (!open || !agent) return
@@ -67,6 +96,7 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
     setFiles([])
     setCronJobs([])
     setDefaultModel("")
+    setAgentModel("")
     setTools([])
     setMemorySummary("")
     setDailyMemoryCount(0)
@@ -75,10 +105,11 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
       window.ipc.agentsFilesList({ agentId: agent.id }),
       window.ipc.cronList(),
       window.ipc.openclawModelsGet(),
+      window.ipc.agentsList(),
       window.ipc.toolsCatalog({ agentId: agent.id }),
       window.ipc.agentsFilesGet({ agentId: agent.id, name: "MEMORY.md" }),
       window.ipc.agentsMemoryList({ agentId: agent.id }),
-    ]).then(([filesRes, cronRes, modelsRes, toolsRes, memoryRes, dailyRes]) => {
+    ]).then(([filesRes, cronRes, modelsRes, agentsRes, toolsRes, memoryRes, dailyRes]) => {
       if (filesRes.ok) {
         const r = filesRes.result as { workspace?: string; files?: FileEntry[] }
         setWorkspace(r.workspace ?? "")
@@ -94,6 +125,9 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
           defaults?: { primary?: string; fallbacks?: string[] }
         }
         setDefaultModel((result.defaults?.primary ?? "").trim())
+      }
+      if (agentsRes.ok) {
+        setAgentModel(parseAgentModelFromAgentsList(agentsRes.result, agent.id))
       }
       if (toolsRes.ok) {
         // tools.catalog may return { tools: ToolEntry[] } or { groups: { tools: ToolEntry[] }[] }
@@ -152,9 +186,12 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
           <div className="flex-1 overflow-y-auto divide-y">
             {/* 模型 */}
             <Section icon={<Server className="h-3.5 w-3.5" />} title="模型">
-              <p className="text-sm text-muted-foreground">
-                {defaultModel || "未配置"}
-              </p>
+              <div className="space-y-1.5">
+                <p className="text-sm text-muted-foreground">{effectiveModel || "未配置"}</p>
+                {defaultModel && agentModel && (
+                  <p className="text-[11px] text-muted-foreground/70">Default: {defaultModel}</p>
+                )}
+              </div>
             </Section>
 
             {/* 工具 */}

@@ -1,4 +1,5 @@
 import { getRuntime } from '../gateway/runtime'
+import { traceDebug } from '../lib/debug-trace'
 
 /**
  * Wrap a gateway request with a consistent { ok, result } / { ok, error } shape.
@@ -8,12 +9,37 @@ export const gw = async <T>(
   method: string,
   params: unknown,
 ): Promise<{ ok: true; result: T } | { ok: false; error: string }> => {
+  const startedAt = Date.now()
+  traceDebug('gw.request', { method, params }, 'main.gw')
   const adapter = getRuntime()
-  if (!adapter) return { ok: false, error: 'Gateway not connected.' }
+  if (!adapter) {
+    const response = { ok: false as const, error: 'Gateway not connected.' }
+    traceDebug(
+      'gw.response',
+      { method, durationMs: Date.now() - startedAt, ...response },
+      'main.gw',
+    )
+    return response
+  }
   try {
     const result = await adapter.request<T>(method, params)
-    return { ok: true, result }
+    const response = { ok: true as const, result }
+    traceDebug(
+      'gw.response',
+      { method, durationMs: Date.now() - startedAt, ok: true, result },
+      'main.gw',
+    )
+    return response
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    const response = {
+      ok: false as const,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+    traceDebug(
+      'gw.response',
+      { method, durationMs: Date.now() - startedAt, ...response },
+      'main.gw',
+    )
+    return response
   }
 }

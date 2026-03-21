@@ -1,7 +1,7 @@
 import type { AppState } from "../app-types"
 import type { GatewayEvent } from "@/hooks/use-openclaw"
 import type { Message, ContentBlock } from "@/types"
-import { extractTextContent, uniqueId, isRecord, resolveAgentIdFromPayload } from "../app-utils"
+import { extractTextContent, extractAssistantContentBlocks, uniqueId, isRecord, resolveAgentIdFromPayload } from "../app-utils"
 
 // Track finalized runIds to prevent duplicate processing (e.g. gateway replays)
 // Use a Map<runId, timestamp> so we can skip only events that arrive significantly later
@@ -70,7 +70,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
     return { ...msg, content: "", contentBlocks: blocks }
   }
 
-  const finalizeStreaming = (finalContent?: string): AppState => {
+  const finalizeStreaming = (finalContent?: string, baseState: AppState = state): AppState => {
     // Mark this run as finalized to prevent duplicate processing
     if (runId) {
       finalizedRunIds.set(runId, Date.now())
@@ -80,12 +80,12 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
       }
     }
 
-    const next = new Set(state.thinkingAgents)
+    const next = new Set(baseState.thinkingAgents)
     next.delete(agentId)
-    const updatedAgents = state.agents.map((a) =>
+    const updatedAgents = baseState.agents.map((a) =>
       a.id === agentId ? { ...a, status: "idle" as const } : a
     )
-    const existing = state.messages[conversationId] ?? []
+    const existing = baseState.messages[conversationId] ?? []
     const streamIdx = findStreamingIdx(existing)
     let updatedMsgs = existing
     if (streamIdx !== -1) {
@@ -136,14 +136,121 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
     const preview = lastMsg?.contentBlocks?.length
       ? (lastMsg.contentBlocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join(" ") || lastMsg.content)
       : (lastMsg?.content ?? "")
-    const updatedConvs = state.conversations.map((c) =>
+    const updatedConvs = baseState.conversations.map((c) =>
       c.id === conversationId
         ? { ...c, lastMessage: preview.slice(0, 100), lastMessageTime: makeTimestamp(),
-            unreadCount: state.activeConversationId === conversationId ? 0 : c.unreadCount + 1 }
+            unreadCount: baseState.activeConversationId === conversationId ? 0 : c.unreadCount + 1 }
         : c
     )
-    return { ...state, thinkingAgents: next, agents: updatedAgents,
-      messages: { ...state.messages, [conversationId]: updatedMsgs }, conversations: updatedConvs }
+    return { ...baseState, thinkingAgents: next, agents: updatedAgents,
+      messages: { ...baseState.messages, [conversationId]: updatedMsgs }, conversations: updatedConvs }
+  }
+
+  const mergeStructuredAssistantBlocks = (
+    currentBlocks: ContentBlock[],
+    incomingBlocks: ContentBlock[],
+  ): { blocks: ContentBlock[]; changed: boolean } => {
+    if (incomingBlocks.length === 0) return { blocks: currentBlocks, changed: false }
+
+    const next = [...currentBlocks]
+    let changed = false
+    const findActiveThinkingIndex = (blocks: ContentBlock[]): number => {
+      const lastIdx = blocks.findLastIndex((b) => b.type === "thinking")
+      if (lastIdx === -1) return -1
+      const hasNonThinkingAfter = blocks.slice(lastIdx + 1).some((b) => b.type !== "thinking")
+      return hasNonThinkingAfter ? -1 : lastIdx
+    }
+
+    for (const incoming of incomingBlocks) {
+      if (incoming.type === "thinking") {
+        const activeIdx = findActiveThinkingIndex(next)
+        if (activeIdx === -1) {
+          const lastThinkingIdx = next.findLastIndex((b) => b.type === "thinking")
+          if (lastThinkingIdx !== -1) {
+            const lastThinking = next[lastThinkingIdx]
+            if (
+              lastThinking.type === "thinking"
+              && (lastThinking.thinking ?? "") === (incoming.thinking ?? "")
+              && (lastThinking.redacted === true) === (incoming.redacted === true)
+            ) {
+              continue
+            }
+          }
+          next.push(incoming)
+          changed = true
+          continue
+        }
+        const old = next[activeIdx]
+        if (old.type !== "thinking") continue
+        const prevText = old.thinking ?? ""
+        const nextText = incoming.thinking ?? ""
+        const prevRedacted = old.redacted === true
+        const nextRedacted = incoming.redacted === true
+        if (prevText !== nextText || prevRedacted !== nextRedacted) {
+          next[activeIdx] = { ...old, thinking: nextText, ...(nextRedacted ? { redacted: true } : {}) }
+          changed = true
+        }
+        continue
+      }
+
+      if (incoming.type === "toolCall") {
+        const idx = next.findIndex((b) => b.type === "toolCall" && b.id === incoming.id)
+        if (idx === -1) {
+          next.push(incoming)
+          changed = true
+          continue
+        }
+        const old = next[idx]
+        if (old.type !== "toolCall") continue
+        const oldArgs = JSON.stringify(old.arguments ?? {})
+        const newArgs = JSON.stringify(incoming.arguments ?? {})
+        if (old.name !== incoming.name || oldArgs !== newArgs) {
+          next[idx] = {
+            ...old,
+            name: incoming.name,
+            arguments: incoming.arguments,
+          }
+          changed = true
+        }
+      }
+    }
+
+    return changed ? { blocks: next, changed: true } : { blocks: currentBlocks, changed: false }
+  }
+
+  const patchStreamingWithStructuredBlocks = (
+    baseState: AppState,
+    incomingBlocks: ContentBlock[],
+  ): AppState => {
+    if (incomingBlocks.length === 0) return baseState
+
+    const existing = baseState.messages[conversationId] ?? []
+    let streamIdx = findStreamingIdx(existing)
+    let msgs = existing
+
+    if (streamIdx === -1) {
+      const agent = baseState.agents.find((a) => a.id === agentId)
+      const newMsg: Message = {
+        id: streamingId || uniqueId(`streaming-${agentId}`),
+        conversationId, senderId: agentId,
+        senderName: agent?.name ?? agentId,
+        senderAvatar: agent?.avatar ?? agentId.slice(0, 2).toUpperCase(),
+        senderRole: agent?.role, content: "", timestamp: makeTimestamp(),
+        read: baseState.activeConversationId === conversationId, type: "text",
+        contentBlocks: [],
+      }
+      msgs = [...existing, newMsg]
+      streamIdx = msgs.length - 1
+    }
+
+    const target = msgs[streamIdx]
+    const currentBlocks = [...(target.contentBlocks ?? [])]
+    const merged = mergeStructuredAssistantBlocks(currentBlocks, incomingBlocks)
+    if (!merged.changed) return baseState
+
+    const updatedMsgs = [...msgs]
+    updatedMsgs[streamIdx] = { ...target, contentBlocks: merged.blocks }
+    return { ...baseState, messages: { ...baseState.messages, [conversationId]: updatedMsgs } }
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -157,6 +264,10 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
       : ""
 
     if (role === "user" || role === "system") return state
+
+    const rawMessage = isRecord(payload.message) ? (payload.message as Record<string, unknown>) : null
+    const rawContent = rawMessage ? (rawMessage.content ?? rawMessage.text) : ""
+    const structuredBlocks = extractAssistantContentBlocks(rawContent).filter((b) => b.type !== "text")
 
     // ── toolResult: patch into streaming message's contentBlocks ──────
     if (role === "toolResult") {
@@ -190,18 +301,23 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
     // Thinking state is managed by lifecycle/start and lifecycle/end.
     // Message placeholder is created by the first agent/assistant delta.
     if (chatState === "delta") {
+      if (structuredBlocks.length > 0) {
+        return patchStreamingWithStructuredBlocks(state, structuredBlocks)
+      }
       return state
     }
 
     // ── final: finalize streaming message ────────────────────────────
     if (chatState === "final") {
-      const rawContent = isRecord(payload.message)
-        ? (payload.message as Record<string, unknown>).content ?? (payload.message as Record<string, unknown>).text : ""
+      const nextState =
+        structuredBlocks.length > 0
+          ? patchStreamingWithStructuredBlocks(state, structuredBlocks)
+          : state
       const content = extractTextContent(rawContent)
-      console.log(`[GW-FINAL] runId=${runId} content="${content.slice(0, 50)}" thinkingAgents=[${[...state.thinkingAgents]}]`)
+      console.log(`[GW-FINAL] runId=${runId} content="${content.slice(0, 50)}" thinkingAgents=[${[...nextState.thinkingAgents]}]`)
       // "NO_REPLY" is a sentinel value meaning no text response — treat as empty
       const effectiveContent = content === "NO_REPLY" ? "" : content
-      return finalizeStreaming(effectiveContent)
+      return finalizeStreaming(effectiveContent, nextState)
     }
 
     if (chatState === "aborted" || chatState === "error") {
@@ -218,6 +334,115 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
     const stream = typeof payload.stream === "string" ? payload.stream : ""
     const data = isRecord(payload.data) ? (payload.data as Record<string, unknown>) : null
     const phase = typeof data?.phase === "string" ? data.phase : ""
+
+    const extractThinkingPatch = (
+      rec: Record<string, unknown>,
+    ): { text: string; isDelta: boolean } | null => {
+      const normalizeThinkingText = (raw: string): string => {
+        let next = raw.trim()
+        if (next.startsWith("Reasoning:\n")) {
+          next = next.slice("Reasoning:\n".length)
+        } else if (next.startsWith("Reasoning:")) {
+          next = next.slice("Reasoning:".length)
+        }
+        next = next.trim()
+        // Some providers wrap the full reasoning snapshot with markdown emphasis.
+        if (next.startsWith("_") && next.endsWith("_") && next.length > 1) {
+          next = next.slice(1, -1).trim()
+        }
+        return next
+      }
+
+      const deltaCandidates = [
+        rec.delta,
+        rec.thinkingDelta,
+        rec.reasoningDelta,
+        rec.thinking_delta,
+        rec.reasoning_delta,
+      ]
+      for (const candidate of deltaCandidates) {
+        if (typeof candidate === "string" && candidate.length > 0) {
+          const normalized = normalizeThinkingText(candidate)
+          if (!normalized) continue
+          const snapshotCandidate =
+            typeof rec.text === "string"
+              ? rec.text
+              : typeof rec.thinking === "string"
+                ? rec.thinking
+                : typeof rec.reasoning === "string"
+                  ? rec.reasoning
+                  : null
+          const normalizedSnapshot = typeof snapshotCandidate === "string"
+            ? normalizeThinkingText(snapshotCandidate)
+            : ""
+
+          // Some runtimes copy the full snapshot into `delta`.
+          // If delta equals snapshot (or looks like an explicit "Reasoning:" wrapper), treat it as snapshot.
+          const looksLikeSnapshotDelta =
+            (normalizedSnapshot.length > 0 && normalized === normalizedSnapshot)
+            || candidate.trimStart().startsWith("Reasoning:")
+          return { text: normalized, isDelta: !looksLikeSnapshotDelta }
+        }
+      }
+
+      const snapshotCandidates = [
+        rec.text,
+        rec.thinking,
+        rec.reasoning,
+        rec.thinkingText,
+        rec.reasoningText,
+        rec.thinking_text,
+        rec.reasoning_text,
+      ]
+      for (const candidate of snapshotCandidates) {
+        if (typeof candidate === "string" && candidate.trim().length > 0) {
+          const normalized = normalizeThinkingText(candidate)
+          if (!normalized) continue
+          return { text: normalized, isDelta: false }
+        }
+      }
+
+      return null
+    }
+
+    const applyThinkingPatch = (
+      blocks: ContentBlock[],
+      patch: { text: string; isDelta: boolean },
+    ): { blocks: ContentBlock[]; changed: boolean } => {
+      const findActiveThinkingIndex = (items: ContentBlock[]): number => {
+        const lastIdx = items.findLastIndex((b) => b.type === "thinking")
+        if (lastIdx === -1) return -1
+        const hasNonThinkingAfter = items.slice(lastIdx + 1).some((b) => b.type !== "thinking")
+        return hasNonThinkingAfter ? -1 : lastIdx
+      }
+
+      const idx = findActiveThinkingIndex(blocks)
+      if (idx === -1) {
+        return { blocks: [...blocks, { type: "thinking", thinking: patch.text }], changed: true }
+      }
+
+      const next = [...blocks]
+      const old = next[idx]
+      if (old.type !== "thinking") return { blocks, changed: false }
+
+      const prevText = old.thinking ?? ""
+      let nextText = prevText
+      if (patch.isDelta) {
+        nextText = prevText + patch.text
+      } else if (!prevText) {
+        nextText = patch.text
+      } else if (patch.text.startsWith(prevText)) {
+        nextText = patch.text
+      } else if (prevText.startsWith(patch.text)) {
+        nextText = prevText
+      } else {
+        nextText = patch.text
+      }
+
+      if (nextText === prevText) return { blocks, changed: false }
+      next[idx] = { ...old, thinking: nextText }
+      return { blocks: next, changed: true }
+    }
 
     if (stream === "lifecycle") {
       if (phase === "start") {
@@ -279,6 +504,41 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
       return { ...state, messages: { ...state.messages, [conversationId]: updatedMsgs } }
     }
 
+    // ── thinking stream: patch/create thinking block in the streaming message ──
+    if (stream === "thinking" && data) {
+      if (runId && finalizedRunIds.has(runId)) return state
+      const thinkingPatch = extractThinkingPatch(data)
+      if (!thinkingPatch) return state
+
+      const existing = state.messages[conversationId] ?? []
+      let streamIdx = findStreamingIdx(existing)
+      let msgs = existing
+
+      if (streamIdx === -1) {
+        const agent = findAgent()
+        const newMsg: Message = {
+          id: streamingId || uniqueId(`streaming-${agentId}`),
+          conversationId, senderId: agentId,
+          senderName: agent?.name ?? agentId,
+          senderAvatar: agent?.avatar ?? agentId.slice(0, 2).toUpperCase(),
+          senderRole: agent?.role, content: "", timestamp: makeTimestamp(),
+          read: state.activeConversationId === conversationId, type: "text",
+          contentBlocks: [],
+        }
+        msgs = [...existing, newMsg]
+        streamIdx = msgs.length - 1
+      }
+
+      const target = msgs[streamIdx]
+      const blocks = [...(target.contentBlocks ?? [])]
+      const patched = applyThinkingPatch(blocks, thinkingPatch)
+      if (!patched.changed) return state
+
+      const updatedMsgs = [...msgs]
+      updatedMsgs[streamIdx] = { ...target, contentBlocks: patched.blocks }
+      return { ...state, messages: { ...state.messages, [conversationId]: updatedMsgs } }
+    }
+
     // ── tool events: inject toolCall blocks into streaming message ────
     // On tool-start, freeze current text into a "text" contentBlock (segment),
     // then add the toolCall block. This produces interleaved text/tool rendering.
@@ -322,12 +582,6 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
           args = data.args as Record<string, unknown>
         }
 
-        // Add thinking block if present
-        const thinkingText = typeof data.text === "string" ? data.text.trim() : ""
-        if (thinkingText && !blocks.some((b) => b.type === "thinking")) {
-          blocks.push({ type: "thinking", thinking: thinkingText })
-        }
-
         // Avoid duplicate toolCall blocks
         if (!blocks.some((b) => b.type === "toolCall" && b.id === toolCallId)) {
           blocks.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: args })
@@ -339,7 +593,20 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
       }
 
       // tool end with result — patch result into the matching toolCall block
-      if (phase === "end" && toolCallId) {
+      if (phase === "delta" || phase === "progress" || phase === "update") {
+        return state
+      }
+
+      if ((phase === "end" || phase === "result") && toolCallId) {
+        const resultPayload = data.result ?? data.text
+        if (
+          resultPayload === undefined
+          || resultPayload === null
+          || (typeof resultPayload === "string" && resultPayload.length === 0)
+        ) {
+          // Some runtimes emit tool result phase without payload; a later hydration pass fills it.
+          return state
+        }
         const existing = state.messages[conversationId] ?? []
         for (let i = existing.length - 1; i >= 0; i--) {
           const m = existing[i]
@@ -348,9 +615,10 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
           const hasMatch = m.contentBlocks.some((b) => b.type === "toolCall" && b.id === toolCallId)
           if (!hasMatch) continue
           const isError = data.isError === true
-          const updatedBlocks = m.contentBlocks.map((b) =>
+          let updatedBlocks = m.contentBlocks
+          updatedBlocks = updatedBlocks.map((b) =>
             b.type === "toolCall" && b.id === toolCallId
-              ? { ...b, result: { toolCallId, toolName, content: data.result ?? data.text ?? "", isError } } : b
+              ? { ...b, result: { toolCallId, toolName, content: resultPayload, isError } } : b
           )
           const updatedMsgs = [...existing]
           updatedMsgs[i] = { ...m, contentBlocks: updatedBlocks }

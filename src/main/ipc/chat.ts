@@ -4,6 +4,7 @@ import path from 'node:path'
 import readline from 'node:readline'
 import { gw } from './gw'
 import { getOpenclawStateDir } from '../lib/openclaw-config'
+import { traceDebug } from '../lib/debug-trace'
 
 /** Parse messages from a JSONL transcript file */
 async function parseJsonlMessages(
@@ -39,6 +40,97 @@ async function parseJsonlMessages(
   return messages
 }
 
+async function resolveSessionId(
+  agentId: string,
+  sessionKey?: string,
+  sessionId?: string,
+): Promise<{ ok: true; sessionId: string } | { ok: false; error: string }> {
+  if (sessionId) return { ok: true, sessionId }
+  if (!sessionKey) return { ok: false, error: 'No sessionId or sessionKey provided' }
+
+  const listRes = await gw<{ sessions: Array<{ key: string; sessionId: string }> }>('sessions.list', {
+    agentId,
+  })
+  if (!listRes.ok) return { ok: false, error: listRes.error ?? 'Failed to list sessions' }
+
+  const sessions = listRes.result?.sessions ?? []
+  const entry = sessions.find((s) => s.key === sessionKey)
+  if (!entry?.sessionId) return { ok: false, error: 'Session not found' }
+
+  return { ok: true, sessionId: entry.sessionId }
+}
+
+async function resolveSessionJsonlPath(
+  agentId: string,
+  sessionId: string,
+): Promise<{ ok: true; filePath: string } | { ok: false; error: string }> {
+  const stateDir = getOpenclawStateDir()
+  const sessionsDir = path.join(stateDir, 'agents', agentId, 'sessions')
+  const jsonlPath = path.join(sessionsDir, `${sessionId}.jsonl`)
+
+  try {
+    await fs.promises.access(jsonlPath)
+    return { ok: true, filePath: jsonlPath }
+  } catch {
+    try {
+      const files = await fs.promises.readdir(sessionsDir)
+      const resetFile = files.find((f) => f.startsWith(`${sessionId}.jsonl.reset.`))
+      if (!resetFile) return { ok: false, error: 'JSONL file not found' }
+      return { ok: true, filePath: path.join(sessionsDir, resetFile) }
+    } catch {
+      return { ok: false, error: 'Sessions directory not found' }
+    }
+  }
+}
+
+async function findToolResultByToolCallId(
+  filePath: string,
+  toolCallId: string,
+): Promise<{
+  found: boolean
+  content?: unknown
+  details?: unknown
+  isError?: boolean
+  timestamp?: number
+}> {
+  let latestMatch:
+    | {
+        found: boolean
+        content?: unknown
+        details?: unknown
+        isError?: boolean
+        timestamp?: number
+      }
+    | null = null
+
+  const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' })
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity })
+
+  for await (const line of rl) {
+    if (!line.trim()) continue
+    try {
+      const parsed = JSON.parse(line) as Record<string, unknown>
+      if (parsed.type !== 'message') continue
+      const msg = parsed.message as Record<string, unknown> | undefined
+      if (!msg || typeof msg !== 'object') continue
+      if (msg.role !== 'toolResult') continue
+      if (msg.toolCallId !== toolCallId) continue
+
+      latestMatch = {
+        found: true,
+        content: msg.content,
+        details: msg.details,
+        isError: msg.isError === true,
+        timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : undefined,
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  return latestMatch ?? { found: false }
+}
+
 export const registerChatHandlers = (ipcMain: IpcMain): void => {
   // Send a message to an agent
   ipcMain.handle('chat:send', async (_event, params: {
@@ -50,9 +142,35 @@ export const registerChatHandlers = (ipcMain: IpcMain): void => {
   }) => {
     // Strip agentId — gateway chat.send only accepts: sessionKey, message, idempotencyKey, attachments
     const { sessionKey, message, idempotencyKey, attachments } = params
+    traceDebug(
+      'ipc.chat.send.received',
+      {
+        agentId: params.agentId,
+        sessionKey,
+        idempotencyKey,
+        hasAttachments: Array.isArray(attachments) && attachments.length > 0,
+        messageLength: typeof message === 'string' ? message.length : 0,
+      },
+      'main.ipc.chat',
+    )
+    // Keep reasoning output in stream mode so renderer can show real-time thinking.
+    // Ignore patch errors for compatibility with older gateway versions.
+    const patchRes = await gw('sessions.patch', { key: sessionKey, reasoningLevel: 'stream' })
+    if (!patchRes.ok) {
+      console.warn(`[chat:send] sessions.patch failed for ${sessionKey}: ${patchRes.error}`)
+      traceDebug('ipc.chat.send.patch.failed', { sessionKey, error: patchRes.error }, 'main.ipc.chat')
+    } else {
+      traceDebug('ipc.chat.send.patch.ok', { sessionKey }, 'main.ipc.chat')
+    }
     const payload: Record<string, unknown> = { sessionKey, message, idempotencyKey }
     if (attachments && attachments.length > 0) payload.attachments = attachments
-    return gw('chat.send', payload)
+    const sendRes = await gw('chat.send', payload)
+    traceDebug(
+      'ipc.chat.send.result',
+      { sessionKey, ok: sendRes.ok, error: sendRes.ok ? null : sendRes.error },
+      'main.ipc.chat',
+    )
+    return sendRes
   })
 
   // Abort an in-flight run
@@ -73,74 +191,66 @@ export const registerChatHandlers = (ipcMain: IpcMain): void => {
 
   // Reset a session
   ipcMain.handle('sessions:reset', async (_event, params: { sessionKey: string }) => {
-    return gw('sessions.reset', params)
+    return gw('sessions.reset', { key: params.sessionKey })
   })
 
   // Patch session settings (e.g. thinking/verbose toggles)
   ipcMain.handle('sessions:patch', async (_event, params: { sessionKey: string; patch: Record<string, unknown> }) => {
-    return gw('sessions.patch', params)
+    return gw('sessions.patch', {
+      ...(params.patch ?? {}),
+      key: params.sessionKey,
+    })
   })
 
   // Read full history from JSONL transcript (includes pre-compaction messages)
   // Accepts either sessionKey (resolved via sessions.list) or sessionId (direct file access)
   ipcMain.handle('chat:history:full', async (_event, params: { agentId: string; sessionKey?: string; sessionId?: string }) => {
     try {
-      let sessionId = params.sessionId
+      const sessionResolve = await resolveSessionId(params.agentId, params.sessionKey, params.sessionId)
+      if (!sessionResolve.ok) return { ok: false, error: sessionResolve.error }
 
-      // If no direct sessionId, resolve from sessionKey via sessions.list
-      if (!sessionId && params.sessionKey) {
-        const listRes = await gw<{ sessions: Array<{ key: string; sessionId: string }> }>('sessions.list', {
-          agentId: params.agentId,
-        })
-        if (!listRes.ok) return { ok: false, error: listRes.error }
-
-        const sessions = listRes.result?.sessions ?? []
-        const entry = sessions.find((s: { key: string }) => s.key === params.sessionKey)
-        if (!entry?.sessionId) {
-          return { ok: false, error: 'Session not found' }
+      const pathResolve = await resolveSessionJsonlPath(params.agentId, sessionResolve.sessionId)
+      if (!pathResolve.ok) {
+        // No JSONL on disk, fall back to gateway API when sessionKey is available
+        if (params.sessionKey) {
+          return gw('chat.history', { sessionKey: params.sessionKey })
         }
-        sessionId = entry.sessionId
-      }
-
-      if (!sessionId) {
-        return { ok: false, error: 'No sessionId or sessionKey provided' }
-      }
-
-      // Locate the JSONL file (could be normal or .reset.* archived)
-      const stateDir = getOpenclawStateDir()
-      const sessionsDir = path.join(stateDir, 'agents', params.agentId, 'sessions')
-      const jsonlPath = path.join(sessionsDir, `${sessionId}.jsonl`)
-
-      // Also check for .reset.* files if the base JSONL doesn't exist
-      let targetPath = jsonlPath
-      try {
-        await fs.promises.access(jsonlPath)
-      } catch {
-        // Look for archived .reset.* file
-        try {
-          const files = await fs.promises.readdir(sessionsDir)
-          const resetFile = files.find((f) => f.startsWith(`${sessionId}.jsonl.reset.`))
-          if (resetFile) {
-            targetPath = path.join(sessionsDir, resetFile)
-          } else {
-            // No JSONL on disk, fall back to gateway API
-            if (params.sessionKey) {
-              return gw('chat.history', { sessionKey: params.sessionKey })
-            }
-            return { ok: false, error: 'JSONL file not found' }
-          }
-        } catch {
-          return { ok: false, error: 'Sessions directory not found' }
-        }
+        return { ok: false, error: pathResolve.error }
       }
 
       // Parse JSONL line by line
-      const messages = await parseJsonlMessages(targetPath)
+      const messages = await parseJsonlMessages(pathResolve.filePath)
       return { ok: true, result: { messages } }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }
     }
   })
+
+  // Read a specific toolResult from JSONL by toolCallId.
+  // Useful when runtime tool stream omits result content in incremental events.
+  ipcMain.handle(
+    'chat:tool-result',
+    async (
+      _event,
+      params: { agentId: string; sessionKey?: string; sessionId?: string; toolCallId: string },
+    ) => {
+      try {
+        const toolCallId = typeof params.toolCallId === 'string' ? params.toolCallId.trim() : ''
+        if (!toolCallId) return { ok: false, error: 'toolCallId is required' }
+
+        const sessionResolve = await resolveSessionId(params.agentId, params.sessionKey, params.sessionId)
+        if (!sessionResolve.ok) return { ok: false, error: sessionResolve.error }
+
+        const pathResolve = await resolveSessionJsonlPath(params.agentId, sessionResolve.sessionId)
+        if (!pathResolve.ok) return { ok: false, error: pathResolve.error }
+
+        const match = await findToolResultByToolCallId(pathResolve.filePath, toolCallId)
+        return { ok: true, result: match }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }
+      }
+    },
+  )
 
   // Scan filesystem for all sessions of an agent (includes orphaned/reset sessions)
   ipcMain.handle('sessions:list:all', async (_event, params: { agentId: string }) => {

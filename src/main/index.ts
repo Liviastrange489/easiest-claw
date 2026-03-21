@@ -13,6 +13,7 @@ import { logger } from './lib/logger'
 import { FIREWALL_RULE_NAME, APP_ID } from '@shared/branding'
 import { initAppUpdater, registerAppUpdaterHandlers } from './app-updater'
 import { patchSettings } from './gateway/settings'
+import { getDebugTraceStatus, traceDebug } from './lib/debug-trace'
 
 // App icon（开发和生产均用同一份，electron-builder 打包时也从 package.json 读取）
 const APP_ICON = join(app.getAppPath(), 'resources', 'icon.ico')
@@ -135,6 +136,13 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(async () => {
   logger.info(`[Startup] App ready — v${app.getVersion()} pid=${process.pid} platform=${process.platform}`)
   logger.info(`[Startup] Log file: ${logger.getPath()}`)
+  traceDebug('app.ready', {
+    version: app.getVersion(),
+    pid: process.pid,
+    platform: process.platform,
+    logPath: logger.getPath(),
+    trace: getDebugTraceStatus(),
+  })
 
   electronApp.setAppUserModelId(APP_ID)
 
@@ -207,11 +215,13 @@ app.whenReady().then(async () => {
 /** 向渲染进程推送一条启动阶段日志（复用 gateway:log 通道 + 日志缓冲区） */
 function pushStartupLog(text: string): void {
   logger.info(`[Startup] ${text}`)
+  traceDebug('startup.log', { text }, 'main.startup')
   const line = `[启动] ${text}`
   // 写入缓冲区（补偿查询可用）+ 通知已注册的 listener
   pushGatewayLog(line, false)
   // listener 可能还没注册（解压阶段在 addGatewayLogListener 之前），直接 send 兜底
   if (mainWindow && !mainWindow.isDestroyed()) {
+    traceDebug('gateway.log.forward', { line, isError: false, from: 'startup-direct' }, 'main.gateway')
     mainWindow.webContents.send('gateway:log', { line, isError: false })
   }
 }
@@ -241,6 +251,7 @@ async function startInitPipeline(): Promise<void> {
 
   // Gateway 进程日志 → 渲染进程
   addGatewayLogListener((line, isError) => {
+    traceDebug('gateway.log.forward', { line, isError }, 'main.gateway')
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('gateway:log', { line, isError })
     }
@@ -258,6 +269,7 @@ async function startInitPipeline(): Promise<void> {
   pushStartupLog('正在连接 Gateway...')
   let lastRuntimeStatusKey = ''
   startRuntime((event) => {
+    traceDebug('runtime.event.received', event, 'main.runtime')
     const runtimeEvt = event as { type?: string; status?: string; reason?: string | null }
     if (runtimeEvt.type === 'runtime.status') {
       const status = runtimeEvt.status ?? 'unknown'
@@ -287,6 +299,16 @@ async function startInitPipeline(): Promise<void> {
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('gateway:event', event)
+      traceDebug(
+        'runtime.event.forwarded',
+        {
+          webContentsId: mainWindow.webContents.id,
+          type: (event as { type?: string }).type,
+          event: (event as { event?: string }).event,
+          seq: (event as { seq?: number | null }).seq ?? null,
+        },
+        'main.runtime',
+      )
       if (is.dev) {
         const evt = event as { type: string; event?: string }
         if (evt.type === 'gateway.event' && evt.event === 'chat') {
@@ -299,9 +321,9 @@ async function startInitPipeline(): Promise<void> {
 
 app.on('window-all-closed', async () => {
   logger.info('[Shutdown] window-all-closed — stopping runtime')
+  traceDebug('app.window-all-closed', { platform: process.platform }, 'main')
   await stopRuntime()
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
-

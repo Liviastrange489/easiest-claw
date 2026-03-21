@@ -43,6 +43,14 @@ export type HistoryMessage = {
   thinkingDurationMs?: number
 }
 
+const appendTrace = (event: string, data?: unknown): void => {
+  try {
+    void window.ipc.debugTraceAppend({ event, data, source: 'renderer.hooks' })
+  } catch {
+    // ignore trace write failures
+  }
+}
+
 // ── Runtime event stream (via Electron IPC) ───────────────────────────────────
 
 export function useRuntimeEventStream(onEvent: (event: GatewayEvent) => void) {
@@ -61,10 +69,13 @@ export function useRuntimeEventStream(onEvent: (event: GatewayEvent) => void) {
       return
     }
 
+    appendTrace('renderer.runtime.connect', { status: 'connecting' })
+
     setStatus('connecting')
 
     // Check initial status
     window.ipc.runtimeStatus().then((res) => {
+      appendTrace('renderer.runtime.status.initial', res)
       if (res && typeof res === 'object' && 'status' in res) {
         const s = (res as { status: string }).status
         if (s === 'connected') setStatus('connected')
@@ -75,6 +86,12 @@ export function useRuntimeEventStream(onEvent: (event: GatewayEvent) => void) {
     // Subscribe to gateway events from main process
     const unsubscribe = window.ipc.onGatewayEvent((event) => {
       const e = event as GatewayEvent
+      appendTrace('renderer.gateway.event.recv', {
+        type: e.type,
+        event: e.event ?? null,
+        seq: e.seq ?? null,
+        status: e.status ?? null,
+      })
       if (e.type === 'runtime.status') {
         if (e.status === 'connected') setStatus('connected')
         else if (e.status === 'error' || e.status === 'stopped') setStatus('error')
@@ -87,6 +104,7 @@ export function useRuntimeEventStream(onEvent: (event: GatewayEvent) => void) {
   }, [])
 
   const disconnect = useCallback(() => {
+    appendTrace('renderer.runtime.disconnect')
     cleanupRef.current?.()
     cleanupRef.current = null
     setStatus('disconnected')
@@ -210,8 +228,22 @@ export function useSendMessage() {
         idempotencyKey,
         ...(imageAttachments.length > 0 ? { attachments: imageAttachments } : {}),
       }
-
-      return await window.ipc.chatSend(payload)
+      appendTrace('renderer.chat.send.request', {
+        agentId,
+        sessionKey: payload.sessionKey,
+        idempotencyKey,
+        messageLength: typeof message === 'string' ? message.length : 0,
+        imageAttachmentCount: imageAttachments.length,
+        fileAttachmentCount: fileAttachments.length,
+      })
+      const res = await window.ipc.chatSend(payload)
+      appendTrace('renderer.chat.send.response', {
+        agentId,
+        sessionKey: payload.sessionKey,
+        ok: (res as { ok?: boolean })?.ok ?? false,
+        error: (res as { error?: string })?.error ?? null,
+      })
+      return res
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'send_failed' }
     } finally {

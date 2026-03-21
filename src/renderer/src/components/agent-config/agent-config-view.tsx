@@ -24,6 +24,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useApp } from "@/store/app-context"
@@ -147,24 +148,79 @@ type OverviewToolEntry = {
   pluginId?: string
 }
 
-function OverviewTab({ agent, cronCount, sessionCount }: { agent: Agent; cronCount: number; sessionCount: number }) {
+function readModelPrimary(input: unknown): string {
+  if (typeof input === "string") return input.trim()
+  if (input && typeof input === "object") {
+    const primary = (input as Record<string, unknown>).primary
+    if (typeof primary === "string") return primary.trim()
+  }
+  return ""
+}
+
+function parseAgentModelFromAgentsList(raw: unknown, agentId: string): string {
+  const result = raw as { agents?: unknown[] } | unknown[]
+  const list = Array.isArray(result)
+    ? result
+    : Array.isArray((result as { agents?: unknown[] })?.agents)
+      ? ((result as { agents: unknown[] }).agents)
+      : []
+  for (const item of list) {
+    const rec = item as Record<string, unknown>
+    const id = typeof rec.id === "string"
+      ? rec.id
+      : (typeof rec.agentId === "string" ? rec.agentId : "")
+    if (id !== agentId) continue
+    return readModelPrimary(rec.model)
+  }
+  return ""
+}
+
+function OverviewTab({
+  agent,
+  cronCount,
+  sessionCount,
+  refreshTick,
+}: {
+  agent: Agent
+  cronCount: number
+  sessionCount: number
+  refreshTick: number
+}) {
   const [workspace, setWorkspace] = useState("")
   const [files, setFiles] = useState<OverviewFileEntry[]>([])
   const [defaultModel, setDefaultModel] = useState("")
+  const [agentModel, setAgentModel] = useState("")
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelDraft, setModelDraft] = useState("")
+  const [savingModel, setSavingModel] = useState(false)
   const [tools, setTools] = useState<OverviewToolEntry[]>([])
   const [memorySummary, setMemorySummary] = useState("")
   const [dailyMemoryCount, setDailyMemoryCount] = useState(0)
   const [overviewLoading, setOverviewLoading] = useState(true)
 
+  const effectiveModel = (agentModel || defaultModel).trim()
+  const canSaveModel = !!modelDraft && modelDraft.trim() !== effectiveModel && !savingModel
+  const modelOptions = Array.from(new Set([...(availableModels ?? []), modelDraft, effectiveModel]))
+    .filter((m): m is string => typeof m === "string" && !!m.trim())
+
   useEffect(() => {
     setOverviewLoading(true)
+    setDefaultModel("")
+    setAgentModel("")
+    setAvailableModels([])
+    setModelDraft("")
     Promise.all([
       window.ipc.agentsFilesList({ agentId: agent.id }),
       window.ipc.openclawModelsGet(),
+      window.ipc.agentsList(),
       window.ipc.toolsCatalog({ agentId: agent.id }),
       window.ipc.agentsFilesGet({ agentId: agent.id, name: "MEMORY.md" }),
       window.ipc.agentsMemoryList({ agentId: agent.id }),
-    ]).then(([filesRes, modelsRes, toolsRes, memoryRes, dailyRes]) => {
+    ]).then(([filesRes, modelsRes, agentsRes, toolsRes, memoryRes, dailyRes]) => {
+      let nextDefaultModel = ""
+      let nextAgentModel = ""
+      let nextModelOptions: string[] = []
+
       if (filesRes.ok) {
         const r = filesRes.result as { workspace?: string; files?: OverviewFileEntry[] }
         setWorkspace(r.workspace ?? "")
@@ -175,8 +231,24 @@ function OverviewTab({ agent, cronCount, sessionCount }: { agent: Agent; cronCou
           providers?: Record<string, { models: { id: string }[] }>
           defaults?: { primary?: string; fallbacks?: string[] }
         }
-        setDefaultModel((result.defaults?.primary ?? "").trim())
+        nextDefaultModel = (result.defaults?.primary ?? "").trim()
+        const options: string[] = []
+        for (const [providerId, provider] of Object.entries(result.providers ?? {})) {
+          for (const model of provider.models ?? []) {
+            if (typeof model.id !== "string" || !model.id.trim()) continue
+            options.push(`${providerId}/${model.id}`)
+          }
+        }
+        nextModelOptions = options
       }
+      if (agentsRes.ok) {
+        nextAgentModel = parseAgentModelFromAgentsList(agentsRes.result, agent.id)
+      }
+      setDefaultModel(nextDefaultModel)
+      setAgentModel(nextAgentModel)
+      setAvailableModels(nextModelOptions)
+      setModelDraft((nextAgentModel || nextDefaultModel || nextModelOptions[0] || "").trim())
+
       if (toolsRes.ok) {
         const r = toolsRes.result as { tools?: OverviewToolEntry[]; groups?: Array<{ tools?: OverviewToolEntry[] }> }
         if (Array.isArray(r.tools)) setTools(r.tools)
@@ -190,7 +262,26 @@ function OverviewTab({ agent, cronCount, sessionCount }: { agent: Agent; cronCou
         setDailyMemoryCount((dailyRes as { ok: true; files: unknown[] }).files?.length ?? 0)
       }
     }).finally(() => setOverviewLoading(false))
-  }, [agent.id])
+  }, [agent.id, refreshTick])
+
+  const handleSaveModel = async () => {
+    const model = modelDraft.trim()
+    if (!model) return
+    setSavingModel(true)
+    try {
+      const res = await window.ipc.agentsUpdate({ agentId: agent.id, model })
+      if (!res || !res.ok) {
+        toast.error((res as { error?: string })?.error ?? "Update model failed")
+        return
+      }
+      setAgentModel(model)
+      toast.success("Agent model updated")
+    } catch {
+      toast.error("Update model failed")
+    } finally {
+      setSavingModel(false)
+    }
+  }
 
   return (
     <div className="h-full overflow-y-auto px-6 py-5 space-y-5">
@@ -242,9 +333,47 @@ function OverviewTab({ agent, cronCount, sessionCount }: { agent: Agent; cronCou
           <span>{agent.role || "—"}</span>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="w-20 shrink-0 text-muted-foreground text-xs">模型</span>
-          <span className="font-mono text-xs">{overviewLoading ? "…" : (defaultModel || "—")}</span>
+        <div className="flex items-start gap-3">
+          <span className="w-20 shrink-0 text-muted-foreground text-xs">Model</span>
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs">{overviewLoading ? "…" : (effectiveModel || "—")}</span>
+              <Badge variant={agentModel ? "default" : "outline"} className="text-[10px] h-5">
+                {agentModel ? "Override" : "Default"}
+              </Badge>
+            </div>
+            {availableModels.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Select
+                  value={modelDraft}
+                  onValueChange={setModelDraft}
+                  disabled={overviewLoading || savingModel}
+                >
+                  <SelectTrigger size="sm" className="min-w-[260px] font-mono text-xs">
+                    <SelectValue placeholder="Select model" />
+                  </SelectTrigger>
+                  <SelectContent className="font-mono text-xs">
+                    {modelOptions.map((m) => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs gap-1"
+                  onClick={handleSaveModel}
+                  disabled={!canSaveModel}
+                >
+                  {savingModel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  Update
+                </Button>
+              </div>
+            )}
+            {defaultModel && (
+              <p className="text-[11px] text-muted-foreground">Default: {defaultModel}</p>
+            )}
+          </div>
         </div>
 
         {agent.lastActiveAt && (
@@ -1255,7 +1384,12 @@ export function AgentConfigView() {
               {/* Tab content */}
               <div className="flex-1 overflow-hidden">
                 {activeTab === "overview" && (
-                  <OverviewTab agent={selectedAgent} cronCount={cronCount} sessionCount={sessionCount} />
+                  <OverviewTab
+                    agent={selectedAgent}
+                    cronCount={cronCount}
+                    sessionCount={sessionCount}
+                    refreshTick={refreshTick}
+                  />
                 )}
                 {activeTab === "sessions" && (
                   <SessionsTab agent={selectedAgent} refreshTick={refreshTick} />

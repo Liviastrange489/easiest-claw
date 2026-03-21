@@ -14,9 +14,9 @@ function BlockMarkdown({ content }: { content: string }) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed text-xs">{children}</p>,
+        p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed text-xs break-words">{children}</p>,
         pre: ({ children }) => (
-          <pre className="bg-black/5 dark:bg-white/10 rounded p-2 overflow-x-auto my-1.5 text-xs font-mono">
+          <pre className="bg-black/5 dark:bg-white/10 rounded p-2 overflow-x-auto my-1.5 text-xs font-mono w-full max-w-full whitespace-pre-wrap break-all">
             {children}
           </pre>
         ),
@@ -91,7 +91,7 @@ function ToolCallCard({ block }: { block: Extract<ContentBlock, { type: "toolCal
 
   return (
     <div className={cn(
-      "rounded-md border overflow-hidden my-1",
+      "rounded-md border overflow-hidden my-1 w-full max-w-full min-w-0",
       isError
         ? "border-red-200/60 dark:border-red-800/40 bg-red-50/30 dark:bg-red-950/20"
         : "border-blue-200/60 dark:border-blue-800/40 bg-blue-50/30 dark:bg-blue-950/20"
@@ -99,7 +99,7 @@ function ToolCallCard({ block }: { block: Extract<ContentBlock, { type: "toolCal
       <button
         type="button"
         className={cn(
-          "flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left text-xs transition-colors",
+          "flex items-center gap-1.5 w-full min-w-0 px-2.5 py-1.5 text-left text-xs transition-colors",
           isError
             ? "text-red-700 dark:text-red-300 hover:bg-red-100/50 dark:hover:bg-red-900/30"
             : "text-blue-700 dark:text-blue-300 hover:bg-blue-100/50 dark:hover:bg-blue-900/30"
@@ -108,9 +108,9 @@ function ToolCallCard({ block }: { block: Extract<ContentBlock, { type: "toolCal
       >
         <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-90")} />
         <Wrench className="h-3.5 w-3.5 shrink-0" />
-        <span className="font-medium">{block.name}</span>
+        <span className="font-medium shrink-0">{block.name}</span>
         {summary && (
-          <span className="text-muted-foreground truncate ml-1">{summary}</span>
+          <span className="text-muted-foreground ml-1 min-w-0 flex-1 truncate">{summary}</span>
         )}
         {hasResult && (
           <span className="ml-auto shrink-0">
@@ -128,7 +128,7 @@ function ToolCallCard({ block }: { block: Extract<ContentBlock, { type: "toolCal
               <div className="text-[10px] font-medium text-muted-foreground uppercase mb-1">
                 {t("contentBlocks.arguments")}
               </div>
-              <pre className="text-xs font-mono bg-black/5 dark:bg-white/10 rounded p-2 overflow-x-auto max-h-40 overflow-y-auto">
+              <pre className="text-xs font-mono bg-black/5 dark:bg-white/10 rounded p-2 overflow-x-auto max-h-40 overflow-y-auto w-full max-w-full whitespace-pre-wrap break-all">
                 {JSON.stringify(block.arguments, null, 2)}
               </pre>
             </div>
@@ -148,7 +148,7 @@ function ToolCallCard({ block }: { block: Extract<ContentBlock, { type: "toolCal
                 {resultText ? (
                   <BlockMarkdown content={resultText} />
                 ) : (
-                  <pre className="font-mono bg-black/5 dark:bg-white/10 rounded p-2 overflow-x-auto">
+                  <pre className="font-mono bg-black/5 dark:bg-white/10 rounded p-2 overflow-x-auto w-full max-w-full whitespace-pre-wrap break-all">
                     {JSON.stringify(block.result!.content, null, 2)}
                   </pre>
                 )}

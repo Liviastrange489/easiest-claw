@@ -19,6 +19,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useI18n } from "@/i18n"
 
@@ -71,6 +81,7 @@ export function ProviderCard({
   const [addingModel, setAddingModel] = useState(false)
   const [newModelId, setNewModelId] = useState("")
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [inlineEditId, setInlineEditId] = useState(providerId)
 
   useEffect(() => {
@@ -151,9 +162,7 @@ export function ProviderCard({
           size="icon-xs"
           onClick={(e) => {
             e.stopPropagation()
-            if (window.confirm(t("modelConfig.deleteConfirm", { name: providerId }))) {
-              onDelete()
-            }
+            setDeleteConfirmOpen(true)
           }}
         >
           <Trash2 className="h-3 w-3" />
@@ -333,6 +342,26 @@ export function ProviderCard({
         onUpdateModel={onUpdateModel}
         onDeleteModel={onDeleteModel}
       />
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("common.confirm")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("modelConfig.deleteConfirm", { name: providerId })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={onDelete}
+            >
+              {t("common.confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

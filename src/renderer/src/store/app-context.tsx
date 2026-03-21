@@ -79,6 +79,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const compactionRunsByConversationRef = useRef(new Map<string, Set<string>>())
   const compactionDoneTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const pendingToolResultHydrationRef = useRef(new Set<string>())
   const [compactingConversationIds, setCompactingConversationIds] = useState<Set<string>>(new Set())
   const [compactedConversationIds, setCompactedConversationIds] = useState<Set<string>>(new Set())
   // 网关事件去重：
@@ -88,7 +89,109 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const DEDUP_TTL_MS = 30_000
   const MAX_DEDUP_KEYS = 4000
 
+  const appendRendererTrace = useCallback((event: string, data?: unknown) => {
+    try {
+      void window.ipc.debugTraceAppend({ event, data, source: 'renderer.app-context' })
+    } catch {
+      // ignore trace write failures
+    }
+  }, [])
+
+  const hydrateMissingToolResult = useCallback((event: GatewayEvent) => {
+    if (event.type !== "gateway.event" || event.event !== "agent") return
+    const payload = event.payload as Record<string, unknown> | undefined
+    if (!payload || payload.stream !== "tool") return
+    const data = payload.data as Record<string, unknown> | undefined
+    if (!data) return
+    const phase = typeof data.phase === "string" ? data.phase : ""
+    if (phase !== "result" && phase !== "end") return
+
+    const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : ""
+    if (!toolCallId) return
+    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : ""
+    if (!sessionKey) return
+
+    const hasInlineResult =
+      data.result !== undefined
+      || (typeof data.text === "string" && data.text.trim().length > 0)
+    if (hasInlineResult) return
+
+    const agentId = resolveAgentIdFromPayload(payload)
+    if (!agentId) return
+
+    const pendingKey = `${sessionKey}:${toolCallId}`
+    if (pendingToolResultHydrationRef.current.has(pendingKey)) return
+    pendingToolResultHydrationRef.current.add(pendingKey)
+
+    const runId = typeof payload.runId === "string" ? payload.runId : ""
+    const toolName = typeof data.name === "string" ? data.name : ""
+    const retryDelaysMs = [120, 360, 900]
+
+    const attempt = async (idx: number): Promise<void> => {
+      try {
+        const res = await window.ipc.chatToolResult({
+          agentId,
+          sessionKey,
+          toolCallId,
+        })
+        const result = (res as { ok?: boolean; result?: Record<string, unknown> })?.result
+        const found = (result?.found === true)
+        if (res && (res as { ok?: boolean }).ok && found) {
+          const details = result?.details as Record<string, unknown> | undefined
+          const aggregated = typeof details?.aggregated === "string" ? details.aggregated : ""
+          const hydratedContent = result?.content ?? aggregated
+          if (hydratedContent !== undefined && hydratedContent !== null) {
+            const synthetic: GatewayEvent = {
+              type: "gateway.event",
+              event: "agent",
+              payload: {
+                ...payload,
+                runId,
+                sessionKey,
+                stream: "tool",
+                data: {
+                  ...data,
+                  phase: "result",
+                  name: toolName,
+                  toolCallId,
+                  isError: result?.isError === true || data.isError === true,
+                  result: hydratedContent,
+                },
+              },
+            }
+            appendRendererTrace("renderer.toolResult.hydrated", {
+              runId,
+              sessionKey,
+              toolCallId,
+              toolName,
+              source: "jsonl",
+            })
+            dispatch({ type: "GATEWAY_EVENT", payload: synthetic })
+            pendingToolResultHydrationRef.current.delete(pendingKey)
+            return
+          }
+        }
+      } catch {
+        // retry below
+      }
+
+      if (idx < retryDelaysMs.length - 1) {
+        setTimeout(() => { void attempt(idx + 1) }, retryDelaysMs[idx + 1])
+      } else {
+        pendingToolResultHydrationRef.current.delete(pendingKey)
+      }
+    }
+
+    void attempt(0)
+  }, [appendRendererTrace])
+
   const handleEvent = useCallback((event: GatewayEvent) => {
+    appendRendererTrace('renderer.handleEvent.received', {
+      type: event.type,
+      event: event.event ?? null,
+      seq: event.seq ?? null,
+      status: event.status ?? null,
+    })
     if (event.type === "gateway.event") {
       const now = Date.now()
       const map = eventDedupeRef.current
@@ -113,7 +216,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const epoch = typeof rec.connectionEpoch === "string" ? rec.connectionEpoch : "no-epoch"
         const frameKey = `frame:${epoch}:${event.seq}`
         const seenAt = map.get(frameKey)
-        if (typeof seenAt === "number" && (now - seenAt) < DEDUP_TTL_MS) return
+        if (typeof seenAt === "number" && (now - seenAt) < DEDUP_TTL_MS) {
+          appendRendererTrace('renderer.handleEvent.dedup.frame', { frameKey })
+          return
+        }
         map.set(frameKey, now)
       }
 
@@ -134,7 +240,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           || phase === "end" || phase === "error" || phase === "completed"
         if (isTerminal && runId) {
           const dedupeKey = `terminal:${[runId, sessionKey, evtName, state, stream, phase].join("|")}`
-          if (map.has(dedupeKey)) return
+          if (map.has(dedupeKey)) {
+            appendRendererTrace('renderer.handleEvent.dedup.terminal', { dedupeKey })
+            return
+          }
           map.set(dedupeKey, now)
         }
       }
@@ -233,8 +342,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    hydrateMissingToolResult(event)
+
+    appendRendererTrace('renderer.handleEvent.dispatch', {
+      type: event.type,
+      event: event.event ?? null,
+      seq: event.seq ?? null,
+    })
     dispatch({ type: "GATEWAY_EVENT", payload: event })
-  }, [])
+  }, [appendRendererTrace, hydrateMissingToolResult])
 
   // 在 useRuntimeEventStream 之前定义 refreshFleet，便于 status effect 引用。
   const refreshFleet = useCallback(async () => {

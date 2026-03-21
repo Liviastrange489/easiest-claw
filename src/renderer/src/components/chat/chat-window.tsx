@@ -141,7 +141,30 @@ export function ChatWindow() {
 
   // Scroll to bottom when messages change or streaming content grows
   const lastMsg = messages.at(-1)
-  const scrollKey = `${messages.length}:${lastMsg?.id ?? ""}:${lastMsg?.id?.startsWith("streaming-") ? lastMsg.content.length : ""}:${state.thinkingAgents.size}`
+  const lastMsgBlocksVersion = (() => {
+    if (!lastMsg?.contentBlocks?.length) return "0"
+    return lastMsg.contentBlocks
+      .map((block) => {
+        if (block.type === "text") return `t:${block.text.length}`
+        if (block.type === "thinking") return `h:${(block.thinking ?? "").length}:${block.redacted ? 1 : 0}`
+        if (block.type === "toolCall") {
+          const argsLen = JSON.stringify(block.arguments ?? {}).length
+          let resultLen = 0
+          if (block.result?.content !== undefined) {
+            if (typeof block.result.content === "string") resultLen = block.result.content.length
+            else resultLen = JSON.stringify(block.result.content).length
+          }
+          return `c:${block.id}:${argsLen}:${resultLen}:${block.result?.isError ? 1 : 0}`
+        }
+        if (block.type === "toolResult") {
+          const len = block.content === undefined ? 0 : JSON.stringify(block.content).length
+          return `r:${block.toolCallId}:${len}:${block.isError ? 1 : 0}`
+        }
+        return "x"
+      })
+      .join("|")
+  })()
+  const scrollKey = `${messages.length}:${lastMsg?.id ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsgBlocksVersion}:${state.thinkingAgents.size}`
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" })
   // eslint-disable-next-line react-hooks/exhaustive-deps

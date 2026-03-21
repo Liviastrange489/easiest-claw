@@ -126,7 +126,7 @@ export function MessageBubble({ message, showSenderInfo = false, onAgentAvatarCl
         </Badge>
       </div>
 
-      <div className="flex flex-col items-start max-w-[70%]">
+      <div className="flex flex-col items-start max-w-[70%] min-w-0">
         {showSenderInfo && (
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-medium text-foreground/80">
@@ -140,7 +140,7 @@ export function MessageBubble({ message, showSenderInfo = false, onAgentAvatarCl
           </div>
         )}
 
-        <div className="rounded-lg rounded-tl-sm px-3 py-2 text-sm bg-muted">
+        <div className="rounded-lg rounded-tl-sm px-3 py-2 text-sm bg-muted w-full min-w-0">
           {message.type === "task-card" && message.taskCard ? (
             <TaskCardContent taskCard={message.taskCard} />
           ) : message.type === "file" && message.fileAttachment ? (

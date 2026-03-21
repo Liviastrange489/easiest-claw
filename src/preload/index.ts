@@ -94,6 +94,9 @@ const ipcApi = {
   chatHistoryFull: (params: { agentId: string; sessionKey?: string; sessionId?: string }) =>
     ipcRenderer.invoke('chat:history:full', params),
 
+  chatToolResult: (params: { agentId: string; sessionKey?: string; sessionId?: string; toolCallId: string }) =>
+    ipcRenderer.invoke('chat:tool-result', params),
+
   sessionsList: (params?: { agentId?: string; includeLastMessage?: boolean; includeDerivedTitles?: boolean; activeMinutes?: number; limit?: number }) =>
     ipcRenderer.invoke('sessions:list', params),
 
@@ -171,6 +174,11 @@ const ipcApi = {
 
   // ── Logs ──────────────────────────────────────────────────────────────────
   logsGetPath: () => ipcRenderer.invoke('logs:getPath'),
+  debugTraceStatus: () => ipcRenderer.invoke('debug:trace:status'),
+  debugTraceSetEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke('debug:trace:set-enabled', { enabled }),
+  debugTraceAppend: (params: { event: string; data?: unknown; source?: string }) =>
+    ipcRenderer.invoke('debug:trace:append', params),
 
   // ── Settings ──────────────────────────────────────────────────────────────
   settingsGet: () => ipcRenderer.invoke('settings:get'),
