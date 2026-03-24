@@ -1,4 +1,13 @@
-import type { Agent, ChatAttachment, Conversation, GroupOrchestration, Message, ViewType } from "@/types"
+import type {
+  Agent,
+  ChatAttachment,
+  Conversation,
+  GroupOrchestration,
+  GroupWorkspaceTask,
+  MasterDecisionTrace,
+  Message,
+  ViewType,
+} from "@/types"
 import type { AgentSeed, ConnectionStatus, GatewayEvent, HistoryMessage } from "@/hooks/use-openclaw"
 
 export interface AppState {
@@ -31,7 +40,16 @@ export type AppAction =
   | { type: "LOAD_GROUPS"; payload: Conversation[] }
   | { type: "LOAD_GROUP_MESSAGES"; payload: Record<string, Message[]> }
   | { type: "UPDATE_GROUP_ORCHESTRATION"; payload: { conversationId: string; orchestration: GroupOrchestration } }
-  | { type: "ADD_ORCHESTRATION_MESSAGE"; payload: { conversationId: string; strategy: string; selectedAgents: string[]; reason: string } }
+  | {
+      type: "ADD_ORCHESTRATION_MESSAGE"
+      payload: {
+        conversationId: string
+        strategy: string
+        selectedAgents: string[]
+        reason: string
+        masterDecision?: MasterDecisionTrace
+      }
+    }
   | { type: "ADVANCE_ROUND_ROBIN"; payload: { conversationId: string } }
   | { type: "DISSOLVE_GROUP"; payload: { conversationId: string } }
   | { type: "RESET_SESSION"; payload: { conversationId: string } }
@@ -39,6 +57,16 @@ export type AppAction =
   | { type: "ADD_AGENT"; payload: { agentId: string; name: string; emoji?: string } }
   | { type: "REMOVE_AGENT"; payload: { agentId: string } }
   | { type: "ADD_GROUP_MEMBER"; payload: { conversationId: string; agentId: string } }
+  | { type: "ADD_GROUP_TASK"; payload: { conversationId: string; task: GroupWorkspaceTask } }
+  | {
+      type: "UPDATE_GROUP_TASK"
+      payload: {
+        conversationId: string
+        taskId: string
+        patch: Partial<Pick<GroupWorkspaceTask, "title" | "description" | "assigneeId" | "pendingAssigneeId" | "pendingClaimAt" | "claimDeadlineAt" | "status" | "progress" | "priority" | "dueAt" | "blockedReason" | "lastNote" | "updatedAt">>
+      }
+    }
+  | { type: "REMOVE_GROUP_TASK"; payload: { conversationId: string; taskId: string } }
   | { type: "TOGGLE_PIN"; payload: { conversationId: string } }
   | { type: "SET_MODELS_CONFIGURED"; payload: boolean }
 
@@ -59,6 +87,10 @@ export interface AppContextValue {
   state: AppState
   dispatch: React.Dispatch<AppAction>
   sendMessage: (conversationId: string, content: string, attachments?: ChatAttachment[]) => void
+  runEmbeddedMasterRebalance: (conversationId: string) => Promise<{ ok: boolean; assignmentCount: number; reason: string }>
+  confirmEmbeddedMasterKickoffPlan: (conversationId: string) => Promise<{ ok: boolean; reason: string }>
+  rejectEmbeddedMasterKickoffPlan: (conversationId: string) => Promise<{ ok: boolean; reason: string }>
+  replanEmbeddedMasterKickoffPlan: (conversationId: string) => Promise<{ ok: boolean; reason: string }>
   simulateAgentReply: (conversationId: string, agentId: string) => void
   refreshFleet: () => Promise<void>
   resetSession: (conversationId: string) => void

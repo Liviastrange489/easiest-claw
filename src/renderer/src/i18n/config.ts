@@ -6,13 +6,13 @@ import {
   SUPPORTED_LOCALES,
 } from "./types"
 
-export const DEFAULT_LOCALE: Locale = "en"
-export const DEFAULT_LOCALE_PREFERENCE: LocalePreference = "system"
+export const DEFAULT_LOCALE: Locale = "zh-CN"
+export const DEFAULT_LOCALE_PREFERENCE: LocalePreference = "zh-CN"
 export const LOCALE_PREFERENCE_COOKIE = "mossb-locale-preference"
 export const LOCALE_PREFERENCE_STORAGE_KEY = "mossb-locale-preference"
 
 export const LOCALE_OPTIONS: LocaleOption[] = [
-  { code: "zh-CN", label: "简体中文", direction: "ltr" },
+  { code: "zh-CN", label: "Chinese (Simplified)", direction: "ltr" },
   { code: "en", label: "English", direction: "ltr" },
 ]
 

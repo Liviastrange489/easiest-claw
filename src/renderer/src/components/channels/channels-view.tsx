@@ -632,12 +632,10 @@ export function ChannelsView() {
       })
 
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     void refreshStatus(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSave = async () => {

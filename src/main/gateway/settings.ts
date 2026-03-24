@@ -17,6 +17,10 @@ export type AppSettings = {
   gateway: { url: string; token: string } | null
   avatars: Record<string, Record<string, string>>
   customDataDir?: string
+  debug?: {
+    enabled: boolean
+    traceEnabled: boolean
+  }
 }
 
 // ── Defaults read from ~/.openclaw/openclaw.json ──────────────────────────────
@@ -72,6 +76,10 @@ export const loadSettings = (): AppSettings => {
     gateway: fromFile.gateway ?? null,
     avatars: fromFile.avatars ?? {},
     customDataDir: typeof fromFile.customDataDir === 'string' ? fromFile.customDataDir : undefined,
+    debug: {
+      enabled: typeof fromFile.debug?.enabled === 'boolean' ? fromFile.debug.enabled : true,
+      traceEnabled: typeof fromFile.debug?.traceEnabled === 'boolean' ? fromFile.debug.traceEnabled : true,
+    },
   }
 }
 

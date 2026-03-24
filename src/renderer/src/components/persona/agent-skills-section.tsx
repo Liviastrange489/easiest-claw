@@ -18,7 +18,7 @@ function parseSkillsResult(raw: unknown): Skill[] {
       ? ((raw as { skills: unknown[] }).skills)
       : []
 
-  return list
+  const parsed = list
     .map((s) => {
       if (typeof s === 'string') return { name: s, enabled: true }
       const sk = s as Record<string, unknown>
@@ -30,6 +30,14 @@ function parseSkillsResult(raw: unknown): Skill[] {
       }
     })
     .filter((s) => s.name)
+
+  const uniqueByName = new Map<string, Skill>()
+  for (const skill of parsed) {
+    if (!uniqueByName.has(skill.name)) {
+      uniqueByName.set(skill.name, skill)
+    }
+  }
+  return [...uniqueByName.values()]
 }
 
 interface AgentSkillsSectionProps {
@@ -64,7 +72,7 @@ export function AgentSkillsSection({ agentId }: AgentSkillsSectionProps) {
 
   useEffect(() => {
     if (agentId) loadData()
-  }, [agentId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agentId])
 
   const isAllowed = (name: string): boolean =>
     allowlist === null ? true : allowlist.includes(name)
@@ -138,11 +146,11 @@ export function AgentSkillsSection({ agentId }: AgentSkillsSectionProps) {
 
       {/* Skill checkboxes */}
       <div className="space-y-0.5">
-        {globalSkills.map((skill) => {
+        {globalSkills.map((skill, idx) => {
           const allowed = isAllowed(skill.name)
           return (
             <label
-              key={skill.name}
+              key={`${skill.name}:${skill.version ?? ""}:${idx}`}
               className={cn(
                 "flex w-full items-start gap-3 px-2 py-2 rounded-md cursor-pointer transition-colors",
                 "hover:bg-accent/50",

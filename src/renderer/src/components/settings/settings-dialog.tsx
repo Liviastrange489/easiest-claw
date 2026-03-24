@@ -1,7 +1,7 @@
 
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Brain, Check, Languages, Info, Server, RefreshCw, Download, CheckCircle2, Loader2, FolderOpen, Copy, CheckCheck, HardDrive, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Brain, Check, Languages, Info, Server, RefreshCw, Download, CheckCircle2, Loader2, FolderOpen, Copy, CheckCheck, HardDrive, AlertTriangle, Bug } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -19,13 +19,14 @@ import { useApp } from "@/store/app-context"
 import { ModelConfigPanel } from "./model-config"
 import { GatewayConfigPanel } from "./gateway-config-panel"
 import { OpenclawUpdatePanel } from "./openclaw-update-panel"
+import { DebugConfigPanel } from "./debug-config-panel"
 
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-type SettingsSection = "models" | "gateway" | "storage" | "language" | "about"
+type SettingsSection = "models" | "gateway" | "debug" | "storage" | "language" | "about"
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t } = useI18n()
@@ -34,6 +35,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const navItems: { id: SettingsSection; label: string; icon: typeof Brain; showDot?: boolean }[] = [
     { id: "models", label: t("settings.sections.models"), icon: Brain, showDot: !state.modelsConfigured },
     { id: "gateway", label: t("settings.sections.gateway"), icon: Server },
+    { id: "debug", label: "调试", icon: Bug },
     { id: "storage", label: t("settings.sections.storage"), icon: HardDrive },
     { id: "language", label: t("settings.sections.language"), icon: Languages },
     { id: "about", label: "关于", icon: Info },
@@ -102,6 +104,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   {t("settings.descriptions.gateway")}
                 </p>
               )}
+              {activeSection === "debug" && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  控制调试日志与 trace 文件记录开关
+                </p>
+              )}
               {activeSection === "storage" && (
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {t("settings.descriptions.storage")}
@@ -113,6 +120,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <div className="px-5 py-4">
                 {activeSection === "models" && <ModelConfigPanel />}
                 {activeSection === "gateway" && <GatewayConfigPanel />}
+                {activeSection === "debug" && <DebugConfigPanel />}
                 {activeSection === "storage" && <StoragePanel />}
                 {activeSection === "language" && <LanguageSettingsPanel />}
                 {activeSection === "about" && <AboutPanel />}

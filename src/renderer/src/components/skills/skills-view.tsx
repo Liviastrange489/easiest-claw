@@ -24,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
+import { isRendererDebugEnabled, rendererDebugLog } from "@/lib/debug"
 import { useI18n } from "@/i18n"
 import { toast } from "sonner"
 
@@ -66,7 +67,7 @@ export function parseSkillsResult(raw: unknown): Skill[] {
       ? (raw as { skills: unknown[] }).skills
       : []
 
-  return list
+  const parsed = list
     .map((s) => {
       if (typeof s === "string") return { name: s, enabled: true }
       const sk = s as Record<string, unknown>
@@ -81,6 +82,15 @@ export function parseSkillsResult(raw: unknown): Skill[] {
       }
     })
     .filter((s) => s.name)
+
+  // Gateway may occasionally return duplicated skill rows; normalize to unique names.
+  const uniqueByName = new Map<string, Skill>()
+  for (const skill of parsed) {
+    if (!uniqueByName.has(skill.name)) {
+      uniqueByName.set(skill.name, skill)
+    }
+  }
+  return [...uniqueByName.values()]
 }
 
 function parseMarketplaceItems(raw: unknown[]): MarketplaceSkill[] {
@@ -305,7 +315,7 @@ function InstalledTab() {
         ) : (
           <div className="space-y-0">
             {filtered.map((skill, i) => (
-              <div key={skill.name}>
+              <div key={`${skill.name}:${skill.source ?? ""}:${i}`}>
                 {i > 0 && <Separator className="my-2.5 opacity-40" />}
                 <div
                   className="flex items-center justify-between gap-3 cursor-pointer hover:bg-accent/30 rounded-md -mx-2 px-2 py-1.5 transition-colors"
@@ -547,17 +557,19 @@ function MarketplaceTab({ hidden }: { hidden?: boolean }) {
     setNextCursor(null)
     try {
       const res = await window.ipc.clawHubExplore(30)
-      console.log('[Skills] explore result:', JSON.stringify(res).slice(0, 300))
+      rendererDebugLog('[Skills] explore result:', JSON.stringify(res).slice(0, 300))
       if (res.ok) {
         const items = parseMarketplaceItems(res.items ?? [])
-        console.log('[Skills] parsed items:', items.length)
+        rendererDebugLog('[Skills] parsed items:', items.length)
         setResults(items)
         setNextCursor(res.nextCursor ?? null)
       } else {
         setError((res as { ok: false; error: string }).error)
       }
     } catch (e) {
-      console.error('[Skills] explore error:', e)
+      if (isRendererDebugEnabled()) {
+        console.error('[Skills] explore error:', e)
+      }
       setError(String(e))
     } finally {
       setLoading(false)

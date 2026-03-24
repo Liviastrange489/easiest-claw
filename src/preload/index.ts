@@ -188,6 +188,9 @@ const ipcApi = {
   settingsSaveAvatar: (params: { gatewayUrl: string; agentId: string; seed: string }) =>
     ipcRenderer.invoke('settings:save-avatar', params),
   settingsDetectLocal: () => ipcRenderer.invoke('settings:detect-local'),
+  settingsGetDebug: () => ipcRenderer.invoke('settings:get-debug'),
+  settingsSaveDebug: (params: { debugEnabled: boolean; traceEnabled: boolean }) =>
+    ipcRenderer.invoke('settings:save-debug', params),
   settingsGetDataDir: (): Promise<{ dir: string; isCustom: boolean; defaultDir: string }> =>
     ipcRenderer.invoke('settings:get-data-dir'),
   settingsSetDataDir: (params: { dir: string }) =>
@@ -251,6 +254,7 @@ const ipcApi = {
   // ── Environment detection ─────────────────────────────────────────────────
   envDetect: () => ipcRenderer.invoke('env:detect'),
   envInstallOpenclaw: () => ipcRenderer.invoke('env:install-openclaw'),
+  envRepairOpenclaw: () => ipcRenderer.invoke('env:repair-openclaw'),
   gatewayResolveConflict: (action: 'connect' | 'stop-and-start') =>
     ipcRenderer.invoke('gateway:resolve-conflict', { action }),
   onInstallProgress: (callback: InstallProgressCallback) => {

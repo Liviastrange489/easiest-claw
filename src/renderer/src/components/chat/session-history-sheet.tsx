@@ -35,7 +35,6 @@ export function SessionHistorySheet({ open, onOpenChange, agentId, currentSessio
       loadSessions()
       clearSelection()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, agentId])
 
   return (

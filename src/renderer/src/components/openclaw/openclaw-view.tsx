@@ -10,6 +10,7 @@ import {
     Server,
     Wifi,
     WifiOff,
+    Wrench,
     XCircle,
 } from "lucide-react"
 import {toast} from "sonner"
@@ -48,6 +49,47 @@ interface InstallState {
     steps: Record<InstallStep, { status: 'pending' | 'running' | 'done' | 'error'; detail?: string; logs: string[] }>
 }
 
+const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
+const MAX_GATEWAY_LOGS = 500
+const GW_LOG_DEDUPE_WINDOW = 20
+
+function normalizeGatewayLogLine(line: string): string {
+    return line.replace(ANSI_RE, "").replace(/\r/g, "").trim()
+}
+
+function appendGatewayLog(
+    prev: Array<{ line: string; isError: boolean }>,
+    incoming: { line: string; isError: boolean }
+) {
+    const line = normalizeGatewayLogLine(incoming.line)
+    if (!line) return prev
+
+    if (prev.length > 0) {
+        const last = prev[prev.length - 1]
+        if (normalizeGatewayLogLine(last.line) === line && last.isError === incoming.isError) {
+            return prev
+        }
+    }
+
+    const minIndex = Math.max(0, prev.length - GW_LOG_DEDUPE_WINDOW)
+    for (let i = prev.length - 1; i >= minIndex; i -= 1) {
+        const item = prev[i]
+        if (normalizeGatewayLogLine(item.line) === line && item.isError === incoming.isError) {
+            return prev
+        }
+    }
+
+    const next = [...prev, { line, isError: incoming.isError }]
+    return next.length > MAX_GATEWAY_LOGS ? next.slice(-MAX_GATEWAY_LOGS) : next
+}
+
+function mergeGatewayLogs(
+    prev: Array<{ line: string; isError: boolean }>,
+    incoming: Array<{ line: string; isError: boolean }>
+) {
+    return incoming.reduce((acc, item) => appendGatewayLog(acc, item), prev)
+}
+
 const EMPTY_STEPS = (): InstallState['steps'] => ({
     node: {status: 'pending', logs: []},
     init: {status: 'pending', logs: []},
@@ -61,6 +103,7 @@ export function OpenclawView() {
     const [env, setEnv] = useState<EnvInfo | null>(null)
     const [envLoading, setEnvLoading] = useState(true)
     const [install, setInstall] = useState<InstallState>({running: false, steps: EMPTY_STEPS()})
+    const [installAction, setInstallAction] = useState<"start" | "repair" | null>(null)
     const [switchingToBundled, setSwitchingToBundled] = useState(false)
     const [gwLogs, setGwLogs] = useState<Array<{ line: string; isError: boolean }>>([])
     const [consoleUrl, setConsoleUrl] = useState<string | null>(null)
@@ -122,7 +165,7 @@ export function OpenclawView() {
     // 订阅 Gateway 进程实时日志
     useEffect(() => {
         const unsub = window.ipc.onGatewayLog(({ line, isError }) => {
-            setGwLogs(prev => [...prev.slice(-499), { line, isError }])
+            setGwLogs(prev => appendGatewayLog(prev, { line, isError }))
         })
         return () => { unsub() }
     }, [])
@@ -131,15 +174,46 @@ export function OpenclawView() {
     useEffect(() => {
         window.ipc.gatewayLogsGet().then((logs) => {
             const ls = logs as Array<{ line: string; isError: boolean }>
-            if (ls.length > 0) setGwLogs(ls)
+            if (ls.length > 0) {
+                setGwLogs(prev => mergeGatewayLogs(prev, ls))
+            }
         }).catch(() => {})
     }, [])
 
     const handleStart = async () => {
+        setInstallAction("start")
         setInstall({running: true, steps: EMPTY_STEPS()})
-        await window.ipc.envInstallOpenclaw()
-        setInstall((prev) => ({...prev, running: false}))
-        loadEnv()
+        try {
+            const res = await window.ipc.envInstallOpenclaw() as { ok: boolean; error?: string }
+            if (!res.ok) {
+                toast.error(res.error ?? "启动失败")
+            }
+        } catch {
+            toast.error("启动失败")
+        } finally {
+            setInstall((prev) => ({...prev, running: false}))
+            setInstallAction(null)
+            loadEnv()
+        }
+    }
+
+    const handleRepair = async () => {
+        setInstallAction("repair")
+        setInstall({running: true, steps: EMPTY_STEPS()})
+        try {
+            const res = await window.ipc.envRepairOpenclaw() as { ok: boolean; error?: string }
+            if (res.ok) {
+                toast.success("OpenClaw 修复完成")
+            } else {
+                toast.error(res.error ?? "修复失败")
+            }
+        } catch {
+            toast.error("修复失败")
+        } finally {
+            setInstall((prev) => ({...prev, running: false}))
+            setInstallAction(null)
+            loadEnv()
+        }
     }
 
     const handleSwitchToBundled = async () => {
@@ -162,6 +236,7 @@ export function OpenclawView() {
 
     const sourceLabel = env?.openclaw.activeSource === 'system' ? '系统'
         : env?.openclaw.activeSource === 'external' ? '外部直连' : '内置'
+    const isRepairing = install.running && installAction === "repair"
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden bg-muted/20">
@@ -302,6 +377,22 @@ export function OpenclawView() {
 
                 </div>
             </div>
+
+            <Button
+                type="button"
+                size="sm"
+                onClick={handleRepair}
+                disabled={install.running}
+                className="fixed bottom-6 right-6 z-30 h-9 px-3 rounded-lg shadow-lg gap-1.5"
+                title="重新解压并替换内置 OpenClaw"
+            >
+                {isRepairing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin"/>
+                ) : (
+                    <Wrench className="h-3.5 w-3.5"/>
+                )}
+                {isRepairing ? "修复中..." : "修复 OpenClaw"}
+            </Button>
         </div>
     )
 }

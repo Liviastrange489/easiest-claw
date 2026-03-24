@@ -38,12 +38,20 @@ import type { Conversation } from "@/types"
 interface ChatHeaderProps {
   conversation: Conversation
   onToggleMembers?: () => void
+  onToggleTeamWorkspace?: () => void
   onToggleWorkspace?: () => void
   onToggleSessionHistory?: () => void
   onAgentAvatarClick?: (agentId: string, agentName: string) => void
 }
 
-export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, onToggleSessionHistory, onAgentAvatarClick }: ChatHeaderProps) {
+export function ChatHeader({
+  conversation,
+  onToggleMembers,
+  onToggleTeamWorkspace,
+  onToggleWorkspace,
+  onToggleSessionHistory,
+  onAgentAvatarClick,
+}: ChatHeaderProps) {
   const { state, dispatch, refreshFleet, compactingConversationIds, compactedConversationIds } = useApp()
   const { t } = useI18n()
   const [renameOpen, setRenameOpen] = useState(false)
@@ -184,6 +192,14 @@ export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, o
             icon={<Users className="h-4 w-4" />}
             tooltip={t("header.tooltips.membersList")}
             onClick={onToggleMembers}
+          />
+        )}
+
+        {isGroup && onToggleTeamWorkspace && (
+          <HeaderButton
+            icon={<FolderOpen className="h-4 w-4" />}
+            tooltip={t("header.tooltips.teamWorkspace")}
+            onClick={onToggleTeamWorkspace}
           />
         )}
 

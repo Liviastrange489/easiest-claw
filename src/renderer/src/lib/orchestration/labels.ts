@@ -4,6 +4,7 @@ import type { OrchestrationStrategy } from "@/types"
 export const STRATEGY_OPTIONS: OrchestrationStrategy[] = [
   "skill-match",
   "coordinator",
+  "a2a",
   "round-robin",
   "all",
 ]

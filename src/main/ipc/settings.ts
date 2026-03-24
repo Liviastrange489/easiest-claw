@@ -6,6 +6,8 @@ import { execFile } from 'node:child_process'
 import { loadSettings, patchSettings, loadOpenclawDefaults } from '../gateway/settings'
 import { restartRuntime } from '../gateway/runtime'
 import { getDataDir } from '../lib/data-dir'
+import { getDebugTraceStatus, setDebugTraceEnabled } from '../lib/debug-trace'
+import { setDebugLoggingEnabled } from '../lib/debug-logging'
 import { logger } from '../lib/logger'
 import { APP_ID } from '@shared/branding'
 
@@ -84,6 +86,51 @@ export const registerSettingsHandlers = (ipcMain: IpcMain): void => {
     const defaults = loadOpenclawDefaults()
     return defaults ?? null
   })
+
+  ipcMain.handle('settings:get-debug', async () => {
+    const settings = loadSettings()
+    const trace = getDebugTraceStatus()
+    return {
+      debugEnabled: settings.debug?.enabled ?? true,
+      traceEnabled: trace.enabled,
+      tracePath: trace.path,
+      traceWrites: trace.writes,
+      traceDropped: trace.dropped,
+    }
+  })
+
+  ipcMain.handle(
+    'settings:save-debug',
+    async (_event, params: { debugEnabled?: boolean; traceEnabled?: boolean }) => {
+      const current = loadSettings()
+      const nextDebugEnabled =
+        typeof params?.debugEnabled === 'boolean'
+          ? params.debugEnabled
+          : current.debug?.enabled ?? true
+      const nextTraceEnabled =
+        typeof params?.traceEnabled === 'boolean'
+          ? params.traceEnabled
+          : current.debug?.traceEnabled ?? true
+
+      patchSettings({
+        debug: {
+          enabled: nextDebugEnabled,
+          traceEnabled: nextTraceEnabled,
+        },
+      })
+
+      setDebugLoggingEnabled(nextDebugEnabled)
+      const trace = setDebugTraceEnabled(nextTraceEnabled)
+      return {
+        ok: true,
+        debugEnabled: nextDebugEnabled,
+        traceEnabled: trace.enabled,
+        tracePath: trace.path,
+        traceWrites: trace.writes,
+        traceDropped: trace.dropped,
+      }
+    },
+  )
 
   // ── 数据存储目录 ───────────────────────────────────────────────────────────────
 

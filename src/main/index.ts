@@ -12,8 +12,9 @@ import { migrateDataDirIfNeeded } from './lib/data-dir'
 import { logger } from './lib/logger'
 import { FIREWALL_RULE_NAME, APP_ID } from '@shared/branding'
 import { initAppUpdater, registerAppUpdaterHandlers } from './app-updater'
-import { patchSettings } from './gateway/settings'
-import { getDebugTraceStatus, traceDebug } from './lib/debug-trace'
+import { loadSettings, patchSettings } from './gateway/settings'
+import { getDebugTraceStatus, setDebugTraceEnabled, traceDebug } from './lib/debug-trace'
+import { isDebugLoggingEnabled, setDebugLoggingEnabled } from './lib/debug-logging'
 
 // App icon（开发和生产均用同一份，electron-builder 打包时也从 package.json 读取）
 const APP_ICON = join(app.getAppPath(), 'resources', 'icon.ico')
@@ -113,7 +114,8 @@ function createWindow(): BrowserWindow {
 
   if (is.dev) {
     win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
-      if (level >= 2) { // 2=warning, 3=error
+      const shouldPrint = level >= 3 || (level === 2 && isDebugLoggingEnabled())
+      if (shouldPrint) { // 2=warning, 3=error
         console.log(`[Renderer ${level === 3 ? 'ERROR' : 'WARN'}] ${message} (${sourceId}:${line})`)
       }
     })
@@ -134,6 +136,11 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(async () => {
+  const settings = loadSettings()
+  setDebugLoggingEnabled(settings.debug?.enabled ?? true)
+  if (typeof settings.debug?.traceEnabled === 'boolean') {
+    setDebugTraceEnabled(settings.debug.traceEnabled)
+  }
   logger.info(`[Startup] App ready — v${app.getVersion()} pid=${process.pid} platform=${process.platform}`)
   logger.info(`[Startup] Log file: ${logger.getPath()}`)
   traceDebug('app.ready', {

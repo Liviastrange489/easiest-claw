@@ -78,6 +78,7 @@ export const agentSeedToAgent = (seed: AgentSeed): Agent => {
     role: "Agent",
     avatar: seed.emoji || name.slice(0, 2).toUpperCase(),
     emoji: seed.emoji,
+    providerId: "openclaw",
     skills: [],
     category: "OpenClaw",
     status: "idle",

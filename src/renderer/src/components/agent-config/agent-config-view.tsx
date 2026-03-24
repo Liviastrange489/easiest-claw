@@ -353,8 +353,8 @@ function OverviewTab({
                     <SelectValue placeholder="Select model" />
                   </SelectTrigger>
                   <SelectContent className="font-mono text-xs">
-                    {modelOptions.map((m) => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    {modelOptions.map((m, idx) => (
+                      <SelectItem key={`${m}:${idx}`} value={m}>{m}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -406,8 +406,8 @@ function OverviewTab({
             )}
             {files.length > 0 ? (
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                {files.map((file) => (
-                  <div key={file.name} className="flex items-center justify-between gap-2 py-0.5">
+                {files.map((file, idx) => (
+                  <div key={`${file.name}:${file.missing ? "missing" : "present"}:${idx}`} className="flex items-center justify-between gap-2 py-0.5">
                     <span className="text-xs font-mono text-foreground/80 truncate">{file.name}</span>
                     {file.missing ? (
                       <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 text-yellow-600 border-yellow-400 shrink-0">!</Badge>
@@ -434,8 +434,8 @@ function OverviewTab({
                   </h3>
                 </div>
                 <div className="space-y-1">
-                  {tools.map((tool) => (
-                    <div key={tool.name} className="flex items-start gap-2 py-0.5">
+                  {tools.map((tool, idx) => (
+                    <div key={`${tool.name}:${tool.source ?? ""}:${tool.pluginId ?? ""}:${idx}`} className="flex items-start gap-2 py-0.5">
                       <code className="text-xs font-mono text-foreground/80 shrink-0">{tool.name}</code>
                       {tool.description && (
                         <span className="text-[11px] text-muted-foreground truncate">{tool.description}</span>
@@ -796,9 +796,9 @@ function SkillsTab({
           </div>
 
           <div className="space-y-0.5">
-            {globalSkills.map((skill) => (
+            {globalSkills.map((skill, idx) => (
               <label
-                key={skill.name}
+                key={`${skill.name}:${skill.version ?? ""}:${idx}`}
                 className={cn(
                   "flex items-center gap-3 px-2 py-2 rounded-md cursor-pointer transition-colors hover:bg-accent/50",
                   saving && "opacity-50 pointer-events-none"

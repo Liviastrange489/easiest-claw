@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { gw } from './gw'
 import { isRecord, readOpenclawConfig as readConfig, writeOpenclawConfig as writeConfig } from '../lib/openclaw-config'
+import { debugLog } from '../lib/debug-logging'
 import { APP_ID } from '@shared/branding'
 
 const SKILLS_SH_BASE = 'https://skills.sh'
@@ -135,10 +136,10 @@ function parseSkillsShHtml(html: string): SkillsShItem[] {
 /** Fetch and parse the skills.sh page, returning deduplicated skill list */
 async function fetchSkillsSh(page = ''): Promise<SkillsShItem[]> {
   const url = page ? `${SKILLS_SH_BASE}/${page}` : SKILLS_SH_BASE
-  console.log(`[skills.sh] Fetching ${url}`)
+  debugLog(`[skills.sh] Fetching ${url}`)
   const html = await fetchText(url)
   const items = parseSkillsShHtml(html)
-  console.log(`[skills.sh] Parsed ${items.length} skills from ${url}`)
+  debugLog(`[skills.sh] Parsed ${items.length} skills from ${url}`)
   return items
 }
 
@@ -210,7 +211,7 @@ export const registerSkillsHandlers = (ipcMain: IpcMain): void => {
       const cacheKey = `explore:all`
       let all = getCached<SkillsShItem[]>(cacheKey)
       if (all) {
-        console.log(`[skills.sh] explore cache hit (${all.length} items)`)
+        debugLog(`[skills.sh] explore cache hit (${all.length} items)`)
       } else {
         const [popular, hot] = await Promise.all([
           fetchSkillsSh(''),
@@ -278,7 +279,7 @@ async function findSkillMdByName(
     }
   }
 
-  console.log(`[skills.sh] Found ${treePaths.length} SKILL.md files in ${source}`)
+  debugLog(`[skills.sh] Found ${treePaths.length} SKILL.md files in ${source}`)
   if (treePaths.length === 0) return null
 
   // Heuristic: sort paths that might contain part of the skillId first
@@ -301,7 +302,7 @@ async function findSkillMdByName(
         if (fmMatch) {
           const nameMatch = /^name:\s*["']?([^\n"']+)["']?\s*$/m.exec(fmMatch[1])
           if (nameMatch && nameMatch[1].trim() === skillId) {
-            console.log(`[skills.sh] Matched ${skillId} at ${p}`)
+            debugLog(`[skills.sh] Matched ${skillId} at ${p}`)
             return content
           }
         }
@@ -322,7 +323,7 @@ async function findSkillMdByName(
     const skillId = params.name
 
     try {
-      console.log(`[skills.sh] Installing skill: ${skillId}`)
+      debugLog(`[skills.sh] Installing skill: ${skillId}`)
 
       // Resolve source from cache
       const cached = getCached<SkillsShItem[]>('explore:all') ?? []
@@ -342,7 +343,7 @@ async function findSkillMdByName(
           for (const p of fallbackPaths) {
             try {
               skillContent = await fetchText(`${GITHUB_RAW_BASE}/${source}/${branch}/${p}`)
-              console.log(`[skills.sh] Fallback found SKILL.md at ${source}/${branch}/${p}`)
+              debugLog(`[skills.sh] Fallback found SKILL.md at ${source}/${branch}/${p}`)
               break
             } catch { /* try next */ }
           }
@@ -374,7 +375,7 @@ async function findSkillMdByName(
         'utf-8'
       )
 
-      console.log(`[skills.sh] Skill ${skillId} installed to ${targetDir}`)
+      debugLog(`[skills.sh] Skill ${skillId} installed to ${targetDir}`)
       return { ok: true }
     } catch (err) {
       console.error(`[skills.sh] Install error:`, err instanceof Error ? err.message : err)

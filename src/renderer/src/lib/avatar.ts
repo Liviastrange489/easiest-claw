@@ -34,36 +34,40 @@ function loadAvatarMap(): Record<string, string> {
   }
 }
 
-function loadUserAvatar(): string | null {
+function loadUserAvatar(): string | undefined {
   try {
     const raw = localStorage.getItem(USER_AVATAR_STORAGE_KEY)
-    if (!raw) return null
-    return raw
+    if (!raw) return undefined
+    const normalized = raw.trim()
+    return normalized ? normalized : undefined
   } catch {
-    return null
+    return undefined
   }
 }
 
-export function getUserAvatarUrl(): string {
+export function getUserAvatarUrl(): string | undefined {
   if (typeof window !== "undefined") {
-    return loadUserAvatar() ?? ""
+    return loadUserAvatar()
   }
-  return ""
+  return undefined
 }
 
 /**
  * Get avatar URL for an agent.
  * Priority: custom avatar (localStorage) > pravatar.cc fallback
  */
-export function getAgentAvatarUrl(agentId: string): string {
+export function getAgentAvatarUrl(agentId: string): string | undefined {
+  const normalizedAgentId = agentId.trim()
+  if (!normalizedAgentId) return undefined
   if (typeof window !== "undefined") {
     const map = loadAvatarMap()
-    if (map[agentId]) return map[agentId]
+    const url = map[normalizedAgentId]?.trim()
+    if (url) return url
   }
-  return ""
+  return undefined
 }
 
-export function getParticipantAvatarUrl(participantId: string): string {
+export function getParticipantAvatarUrl(participantId: string): string | undefined {
   if (participantId === "user") return getUserAvatarUrl()
   return getAgentAvatarUrl(participantId)
 }

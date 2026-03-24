@@ -62,7 +62,7 @@ export function handleGroupAction(state: AppState, action: AppAction): AppState 
       return { ...state, conversations: updatedConvs }
     }
     case "ADD_ORCHESTRATION_MESSAGE": {
-      const { conversationId, strategy, selectedAgents, reason } = action.payload
+      const { conversationId, strategy, selectedAgents, reason, masterDecision } = action.payload
       const orchestrationMsg: Message = {
         id: uniqueId("orch"),
         conversationId,
@@ -77,6 +77,7 @@ export function handleGroupAction(state: AppState, action: AppAction): AppState 
           strategy: strategy as import("@/types").OrchestrationStrategy,
           selectedAgents,
           reason,
+          masterDecision,
         },
       }
       const existing = state.messages[conversationId] ?? []
@@ -135,6 +136,60 @@ export function handleGroupAction(state: AppState, action: AppAction): AppState 
         if (c.id !== conversationId || c.members.includes(agentId)) return c
         return { ...c, members: [...c.members, agentId] }
       })
+      saveGroupsToStorage(updatedConvs)
+      return { ...state, conversations: updatedConvs }
+    }
+    case "ADD_GROUP_TASK": {
+      const { conversationId, task } = action.payload
+      let changed = false
+      const updatedConvs = state.conversations.map((c) => {
+        if (c.id !== conversationId || c.type !== "group") return c
+        const existing = c.workspaceTasks ?? []
+        if (existing.some((item) => item.id === task.id)) return c
+        changed = true
+        return {
+          ...c,
+          workspaceTasks: [...existing, task],
+        }
+      })
+      if (!changed) return state
+      saveGroupsToStorage(updatedConvs)
+      return { ...state, conversations: updatedConvs }
+    }
+    case "UPDATE_GROUP_TASK": {
+      const { conversationId, taskId, patch } = action.payload
+      let changed = false
+      const updatedConvs = state.conversations.map((c) => {
+        if (c.id !== conversationId || c.type !== "group") return c
+        const existing = c.workspaceTasks ?? []
+        const nextTasks = existing.map((task) => {
+          if (task.id !== taskId) return task
+          changed = true
+          return {
+            ...task,
+            ...patch,
+            updatedAt: patch.updatedAt ?? new Date().toISOString(),
+          }
+        })
+        if (!changed) return c
+        return { ...c, workspaceTasks: nextTasks }
+      })
+      if (!changed) return state
+      saveGroupsToStorage(updatedConvs)
+      return { ...state, conversations: updatedConvs }
+    }
+    case "REMOVE_GROUP_TASK": {
+      const { conversationId, taskId } = action.payload
+      let changed = false
+      const updatedConvs = state.conversations.map((c) => {
+        if (c.id !== conversationId || c.type !== "group") return c
+        const existing = c.workspaceTasks ?? []
+        const nextTasks = existing.filter((task) => task.id !== taskId)
+        if (nextTasks.length === existing.length) return c
+        changed = true
+        return { ...c, workspaceTasks: nextTasks }
+      })
+      if (!changed) return state
       saveGroupsToStorage(updatedConvs)
       return { ...state, conversations: updatedConvs }
     }

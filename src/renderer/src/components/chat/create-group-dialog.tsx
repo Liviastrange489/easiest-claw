@@ -26,7 +26,7 @@ import {
 } from "@/lib/orchestration/labels"
 import { cn } from "@/lib/utils"
 import { useApp } from "@/store/app-context"
-import type { Conversation, OrchestrationStrategy } from "@/types"
+import type { A2AMasterMode, Conversation, OrchestrationStrategy } from "@/types"
 
 interface CreateGroupDialogProps {
   open: boolean
@@ -45,6 +45,16 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
   const [strategy, setStrategy] = useState<OrchestrationStrategy>(mainAgentId ? "coordinator" : "skill-match")
   const [coordinatorId, setCoordinatorId] = useState(mainAgentId ?? "")
   const [maxResponders, setMaxResponders] = useState(2)
+  const [strictRoleMatch, setStrictRoleMatch] = useState(true)
+  const [masterMode, setMasterMode] = useState<A2AMasterMode>("embedded-master")
+  const requiresCoordinator =
+    strategy === "coordinator" || (strategy === "a2a" && masterMode === "openclaw-coordinator")
+  const isEmbeddedA2A = strategy === "a2a" && masterMode === "embedded-master"
+  const resolvedCoordinatorId =
+    (coordinatorId && selectedIds.includes(coordinatorId) ? coordinatorId : "")
+    || (mainAgentId && selectedIds.includes(mainAgentId) ? mainAgentId : "")
+    || selectedIds[0]
+    || ""
 
   // When dialog opens, ensure main agent is pre-selected as coordinator
   useEffect(() => {
@@ -63,14 +73,14 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
   }
 
   const toggle = (id: string) => {
-    if (id === mainAgentId) return // main agent must stay in the group
+    if (id === mainAgentId && !isEmbeddedA2A) return
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
     )
   }
 
   const remove = (id: string) => {
-    if (id === mainAgentId) return // main agent must stay in the group
+    if (id === mainAgentId && !isEmbeddedA2A) return
     setSelectedIds((prev) => prev.filter((value) => value !== id))
   }
 
@@ -83,6 +93,8 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
     setStrategy(mainAgentId ? "coordinator" : "skill-match")
     setCoordinatorId(mainAgentId ?? "")
     setMaxResponders(2)
+    setStrictRoleMatch(true)
+    setMasterMode("embedded-master")
   }
 
   const handleCreate = () => {
@@ -98,7 +110,12 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
       members: ["user", ...selectedIds],
       orchestration: {
         strategy,
-        ...(strategy === "coordinator" && coordinatorId ? { coordinatorId } : {}),
+        ...(
+          requiresCoordinator && resolvedCoordinatorId
+            ? { coordinatorId: resolvedCoordinatorId }
+            : {}
+        ),
+        ...(strategy === "a2a" ? { a2aStrictRoleMatch: strictRoleMatch, masterMode } : {}),
         ...(strategy === "skill-match" ? { maxResponders } : {}),
         ...(strategy === "round-robin" ? { roundRobinIndex: 0 } : {}),
       },
@@ -220,9 +237,67 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
                 </div>
               )}
 
-              {strategy === "coordinator" && selectedIds.length > 0 && (
+              {strategy === "a2a" && (
+                <div className="pt-1 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("groupCreate.a2aGuide")} <code>A2A -&gt; @Agent: task</code>
+                    <code className="mx-1">```a2a ... ```</code>
+                    {` ${t("groupCreate.a2aGuideWith")} `}
+                    <code>{`{"to":"Agent","message":"..."}`}</code>. {
+                      masterMode === "embedded-master"
+                        ? t("groupCreate.a2aGuideTailEmbedded")
+                        : t("groupCreate.a2aGuideTailCoordinator")
+                    }
+                  </p>
+                  <div className="space-y-1.5 rounded-md border p-2">
+                    <p className="text-[11px] font-medium">{t("groupCreate.masterModeLabel")}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setMasterMode("embedded-master")}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                          masterMode === "embedded-master"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted hover:bg-accent"
+                        )}
+                      >
+                        {t("groupCreate.masterModeEmbedded")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMasterMode("openclaw-coordinator")}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                          masterMode === "openclaw-coordinator"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted hover:bg-accent"
+                        )}
+                      >
+                        {t("groupCreate.masterModeOpenclawCoordinator")}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("groupCreate.masterModeHint")}
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs">
+                    <Checkbox
+                      checked={strictRoleMatch}
+                      onCheckedChange={(checked) => setStrictRoleMatch(checked === true)}
+                    />
+                    <span>
+                      {t("groupCreate.strictRoleRouting")}
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {requiresCoordinator && selectedIds.length > 0 && (
                 <div className="space-y-1 pt-1">
-                  <Label className="text-xs">{t("groupCreate.coordinatorLabel")}</Label>
+                  <Label className="text-xs">
+                    {strategy === "a2a" ? t("groupCreate.a2aCoordinatorLabel") : t("groupCreate.coordinatorLabel")}
+                  </Label>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedIds.map((id) => {
                       const agent = state.agents.find((item) => item.id === id)
@@ -245,8 +320,10 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
                       )
                     })}
                   </div>
-                  {!coordinatorId && (
-                    <p className="text-[11px] text-amber-600">{t("groupCreate.coordinatorRequired")}</p>
+                  {!resolvedCoordinatorId && (
+                    <p className="text-[11px] text-amber-600">
+                      {strategy === "a2a" ? t("groupCreate.a2aCoordinatorRequired") : t("groupCreate.coordinatorRequired")}
+                    </p>
                   )}
                 </div>
               )}
@@ -295,7 +372,7 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
                           <Checkbox
                             checked={selectedIds.includes(agent.id)}
                             onCheckedChange={() => toggle(agent.id)}
-                            disabled={agent.id === mainAgentId}
+                            disabled={agent.id === mainAgentId && !isEmbeddedA2A}
                           />
                           <Avatar className="h-8 w-8 shrink-0">
                             <AvatarImage src={getAgentAvatarUrl(agent.id)} alt={agent.name} />
@@ -305,15 +382,18 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-medium">{agent.name}</span>
-                            {agent.id === mainAgentId && (
+                            {agent.id === mainAgentId && requiresCoordinator && (
                               <span className="ml-2 text-[11px] text-primary font-medium">{t("groupCreate.mainAgent")}</span>
+                            )}
+                            {agent.id === mainAgentId && isEmbeddedA2A && (
+                              <span className="text-xs text-muted-foreground ml-2">{t("groupCreate.seedAgent")}</span>
                             )}
                             {agent.id !== mainAgentId && (
                               <span className="text-xs text-muted-foreground ml-2">{agent.role}</span>
                             )}
                           </div>
                           <span className="text-xs text-muted-foreground truncate max-w-[140px] shrink-0">
-                            {agent.skills.join(locale.startsWith("zh") ? "、" : " · ")}
+                            {agent.skills.join(locale.startsWith("zh") ? "、" : ", ")}
                           </span>
                         </label>
                       ))}
@@ -336,12 +416,13 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
                 return (
                   <Badge key={id} variant="secondary" className={cn("gap-1", id !== mainAgentId && "pr-1")}>
                     {agent?.name}
-                    {id === mainAgentId ? (
+                    {requiresCoordinator && id === resolvedCoordinatorId ? (
                       <span className="text-[10px] text-primary ml-0.5">{t("groupCreate.coordinator")}</span>
                     ) : (
                       <button
                         type="button"
                         onClick={() => remove(id)}
+                        disabled={id === mainAgentId && !isEmbeddedA2A}
                         className="hover:bg-muted-foreground/20 rounded-full p-0.5"
                       >
                         <X className="h-3 w-3" />
@@ -361,7 +442,7 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
               disabled={
                 !name.trim() ||
                 selectedIds.length === 0 ||
-                (strategy === "coordinator" && !coordinatorId)
+                (requiresCoordinator && !resolvedCoordinatorId)
               }
             >
               {t("groupCreate.createWithCount", { count: selectedIds.length })}

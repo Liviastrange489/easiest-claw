@@ -20,7 +20,7 @@ function parseSkillsResult(raw: unknown): Skill[] {
       ? ((raw as { skills: unknown[] }).skills)
       : []
 
-  return list
+  const parsed = list
     .map((s) => {
       if (typeof s === 'string') return { name: s, enabled: true }
       const sk = s as Record<string, unknown>
@@ -33,6 +33,14 @@ function parseSkillsResult(raw: unknown): Skill[] {
       }
     })
     .filter((s) => s.name)
+
+  const uniqueByName = new Map<string, Skill>()
+  for (const skill of parsed) {
+    if (!uniqueByName.has(skill.name)) {
+      uniqueByName.set(skill.name, skill)
+    }
+  }
+  return [...uniqueByName.values()]
 }
 
 export function SkillsCard() {
@@ -107,7 +115,7 @@ export function SkillsCard() {
       ) : (
         <div className="space-y-0">
           {skills.map((skill, i) => (
-            <div key={skill.name}>
+            <div key={`${skill.name}:${skill.source ?? ""}:${i}`}>
               {i > 0 && <Separator className="my-2.5 opacity-40" />}
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">

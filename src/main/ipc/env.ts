@@ -2,7 +2,9 @@ import type { IpcMain } from 'electron'
 import os from 'os'
 import crypto from 'crypto'
 import { spawn } from 'child_process'
-import { getRuntime, restartRuntime } from '../gateway/runtime'
+import { join } from 'path'
+import { rmSync } from 'fs'
+import { getRuntime, restartRuntime, stopRuntime } from '../gateway/runtime'
 import { patchSettings } from '../gateway/settings'
 import {
   GATEWAY_PORT,
@@ -20,9 +22,12 @@ import {
   setGatewaySource,
   isPortConflictPending,
   setPortConflictPending,
+  stopGatewayGracefully,
 } from '../gateway/bundled-process'
+import { extractOpenClawIfNeeded } from '../openclaw-init'
+import { getDataDir } from '../lib/data-dir'
 
-// ── System environment detection ───────────────────────────────────────────────
+// 鈹€鈹€ System environment detection 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 async function getExecutablePath(cmd: string): Promise<string | null> {
   return new Promise((resolve) => {
     const isWin = process.platform === 'win32'
@@ -31,7 +36,7 @@ async function getExecutablePath(cmd: string): Promise<string | null> {
     child.stdout?.on('data', (d: Buffer) => { out += d.toString() })
     child.on('close', (code) => {
       if (code === 0 && out.trim()) {
-        // where 可能返回多行，取第一行
+        // where 鍙兘杩斿洖澶氳锛屽彇绗竴琛?
         resolve(out.trim().split(/\r?\n/)[0].trim())
       } else {
         resolve(null)
@@ -63,10 +68,60 @@ async function detectSystemNode(): Promise<{ version: string; path: string | nul
   return { version, path: execPath }
 }
 
-// ── IPC handlers ───────────────────────────────────────────────────────────────
+type InstallProgressStatus = 'running' | 'done' | 'error'
+type InstallProgressSender = (step: string, status: InstallProgressStatus, detail?: string) => void
+
+async function startBundledGatewayWithProgress(
+  send: InstallProgressSender
+): Promise<{ ok: true; openclawDir: string; gatewayUrl: string } | { ok: false; error: string }> {
+  const bundledOc = getBundledOpenclaw()
+  if (!bundledOc) {
+    send('init', 'error', 'Bundled openclaw not found (resources/openclaw/openclaw.mjs)')
+    return { ok: false, error: 'Bundled openclaw not found' }
+  }
+  const { openclawDir, entryScript } = bundledOc
+
+  send('init', 'running', 'Preparing Gateway configuration...')
+  let token = readGatewayToken()
+  if (token) {
+    send('init', 'done', 'Using existing Gateway token')
+  } else {
+    token = crypto.randomBytes(24).toString('hex')
+    writeGatewayConfig(token)
+    send('init', 'done', 'Generated and saved Gateway token')
+  }
+
+  send('start', 'running', 'Starting OpenClaw Gateway...')
+
+  const removeLogListener = addGatewayLogListener((line, isError) => {
+    send('start', 'running', `${isError ? '[stderr] ' : ''}${line}`)
+  })
+
+  forkOpenclawGateway(entryScript, openclawDir, token, true)
+
+  const started = await waitForGatewayReady(20_000)
+  removeLogListener()
+
+  if (!started) {
+    send('start', 'error', `Gateway was not ready within 20s (port ${GATEWAY_PORT})`)
+    return { ok: false, error: 'Gateway startup timed out. Please try Repair.' }
+  }
+  send('start', 'done', `Gateway is ready (port ${GATEWAY_PORT})`)
+
+  send('connect', 'running', 'Connecting runtime...')
+  const cfg = { url: `ws://localhost:${GATEWAY_PORT}`, token }
+  patchSettings({ gateway: cfg })
+  setGatewaySource('bundled')
+  await restartRuntime()
+  send('connect', 'done', `Connected (${cfg.url})`)
+
+  return { ok: true, openclawDir, gatewayUrl: cfg.url }
+}
+
+// 鈹€鈹€ IPC handlers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 export const registerEnvHandlers = (ipcMain: IpcMain): void => {
 
-  // ── 环境检测（并发执行，较慢但信息全面）──────────────────────────────────────
+  // 鈹€鈹€ 鐜妫€娴嬶紙骞跺彂鎵ц锛岃緝鎱絾淇℃伅鍏ㄩ潰锛夆攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   ipcMain.handle('env:detect', async () => {
     const platform = os.platform()
     const osNames: Record<string, string> = {
@@ -128,70 +183,57 @@ export const registerEnvHandlers = (ipcMain: IpcMain): void => {
     }
   })
 
-  // ── 手动启动内置 openclaw（UI 触发，用于 gateway 崩溃后重启）────────────────
+  // 鈹€鈹€ 鎵嬪姩鍚姩鍐呯疆 openclaw锛圲I 瑙﹀彂锛岀敤浜?gateway 宕╂簝鍚庨噸鍚級鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   ipcMain.handle('env:install-openclaw', async (event) => {
-    const send = (step: string, status: 'running' | 'done' | 'error', detail?: string) => {
+    const send = (step: string, status: InstallProgressStatus, detail?: string) => {
       console.log(`[Openclaw:${step}][${status}] ${detail ?? ''}`)
       event.sender.send('env:install-progress', { step, status, detail })
     }
 
     send('node', 'done', `Electron Node.js ${process.versions.node}`)
-
-    const bundledOc = getBundledOpenclaw()
-    if (!bundledOc) {
-      send('init', 'error', '找不到内置 openclaw (resources/openclaw/openclaw.mjs)')
-      return { ok: false, error: '内置 openclaw 不存在' }
-    }
-    const { openclawDir, entryScript } = bundledOc
-
-    send('init', 'running', '准备 Gateway 配置...')
-    let token = readGatewayToken()
-    if (token) {
-      send('init', 'done', '已有有效配置')
-    } else {
-      token = crypto.randomBytes(24).toString('hex')
-      writeGatewayConfig(token)
-      send('init', 'done', 'Token 生成并写入完成')
-    }
-
-    send('start', 'running', '正在 fork OpenClaw Gateway...')
-
-    const removeLogListener = addGatewayLogListener((line, isError) => {
-      send('start', 'running', `${isError ? '[stderr] ' : ''}${line}`)
-    })
-
-    forkOpenclawGateway(entryScript, openclawDir, token, true)
-
-    const started = await waitForGatewayReady(20_000)
-    removeLogListener()
-
-    if (!started) {
-      send('start', 'error', `Gateway 20s 内未就绪 (port ${GATEWAY_PORT})`)
-      return { ok: false, error: 'Gateway 启动超时' }
-    }
-    send('start', 'done', `Gateway 已就绪 (port ${GATEWAY_PORT})`)
-
-    send('connect', 'running', '正在连接...')
-    const cfg = { url: `ws://localhost:${GATEWAY_PORT}`, token }
-    patchSettings({ gateway: cfg })
-    await restartRuntime()
-    send('connect', 'done', `已连接 (${cfg.url})`)
-
-    return { ok: true, openclawDir, gatewayUrl: cfg.url }
+    return startBundledGatewayWithProgress(send)
   })
 
-  // ── 端口冲突解决 ──────────────────────────────────────────────────────────
+  ipcMain.handle('env:repair-openclaw', async (event) => {
+    const send = (step: string, status: InstallProgressStatus, detail?: string) => {
+      console.log(`[OpenclawRepair:${step}][${status}] ${detail ?? ''}`)
+      event.sender.send('env:install-progress', { step, status, detail })
+    }
+
+    send('node', 'done', `Electron Node.js ${process.versions.node}`)
+    send('init', 'running', 'Stopping existing Gateway...')
+
+    try { await stopRuntime() } catch {}
+    try { await stopGatewayGracefully(8000) } catch {}
+
+    const markerPath = join(getDataDir(), '.openclaw-version')
+    try { rmSync(markerPath, { force: true }) } catch {}
+
+    send('init', 'running', 'Re-extracting bundled OpenClaw...')
+    try {
+      await extractOpenClawIfNeeded(null, process.resourcesPath)
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      send('init', 'error', `Re-extract failed: ${msg}`)
+      return { ok: false, error: `Re-extract failed: ${msg}` }
+    }
+
+    send('init', 'done', 'Reinstall completed')
+    return startBundledGatewayWithProgress(send)
+  })
+
+  // Port conflict handling
   ipcMain.handle('gateway:resolve-conflict', async (_, { action }: { action: 'connect' | 'stop-and-start' }) => {
     setPortConflictPending(false)
 
     if (action === 'connect') {
-      // 直连：使用外部 OpenClaw，token 已在 autoSpawn 时写入 settings
+      // 鐩磋繛锛氫娇鐢ㄥ閮?OpenClaw锛宼oken 宸插湪 autoSpawn 鏃跺啓鍏?settings
       setGatewaySource('external')
       await restartRuntime()
       return { ok: true }
     }
 
-    // stop-and-start：停止外部，启动内置
+    // stop-and-start锛氬仠姝㈠閮紝鍚姩鍐呯疆
     const bundledOc = getBundledOpenclaw()
     if (!bundledOc) return { ok: false, error: '找不到内置 openclaw' }
     const { openclawDir, entryScript } = bundledOc
@@ -235,3 +277,4 @@ export const registerEnvHandlers = (ipcMain: IpcMain): void => {
     return { ok: ready }
   })
 }
+

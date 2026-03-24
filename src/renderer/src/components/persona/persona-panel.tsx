@@ -129,7 +129,7 @@ export function PersonaPanel({
       setHasUnsavedChanges(false)
       resetFile()
     }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open])
 
   useEffect(() => {
     if (!fileState.loading && selectedFile) {

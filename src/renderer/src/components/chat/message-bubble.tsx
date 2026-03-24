@@ -37,13 +37,30 @@ export function MessageBubble({ message, showSenderInfo = false, onAgentAvatarCl
   }
 
   if (message.type === "orchestration") {
+    const decision = message.orchestrationInfo?.masterDecision
+    const phaseLabel =
+      decision?.phase === "kickoff"
+        ? "Kickoff"
+        : decision?.phase === "rebalance"
+          ? "Rebalance"
+          : decision?.phase === "assignment"
+            ? "Assign"
+            : null
     return (
-      <div className="flex items-center justify-center py-2 gap-2">
-        <div className="h-px flex-1 bg-border/50" />
-        <span className="text-[11px] text-muted-foreground/70 px-2 shrink-0">
-          {message.orchestrationInfo?.reason ?? message.content}
-        </span>
-        <div className="h-px flex-1 bg-border/50" />
+      <div className="py-1.5 flex justify-center">
+        <div className="max-w-[88%] w-full rounded-md border bg-muted/25 px-2.5 py-1.5 flex items-center gap-1.5">
+          <Badge variant="outline" className="h-4 px-1.5 text-[10px] shrink-0">
+            Flow
+          </Badge>
+          {phaseLabel && (
+            <Badge variant="secondary" className="h-4 px-1.5 text-[10px] shrink-0">
+              {phaseLabel}
+            </Badge>
+          )}
+          <span className="text-[11px] text-muted-foreground truncate">
+            {message.orchestrationInfo?.reason ?? message.content}
+          </span>
+        </div>
       </div>
     )
   }

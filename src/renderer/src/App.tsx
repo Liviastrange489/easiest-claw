@@ -2,7 +2,7 @@ import { Component, useCallback, useEffect, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { useApp } from '@/store/app-context'
 import { AppProvider } from '@/store/app-context'
-import { LanguageProvider } from '@/i18n'
+import { LanguageProvider, useI18n } from '@/i18n'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { NavRail } from '@/components/layout/nav-rail'
@@ -18,6 +18,7 @@ import { PluginsView } from '@/components/plugins/plugins-view'
 import { PortConflictDialog } from '@/components/openclaw/port-conflict-dialog'
 import { OnboardingFlow, GatewayLoadingScreen } from '@/components/onboarding/onboarding-flow'
 import { isOnboardingDone } from '@/lib/avatar'
+import { setRendererDebugEnabled } from '@/lib/debug'
 import { useAppUpdate } from '@/hooks/use-app-update'
 
 function MainContent() {
@@ -52,6 +53,17 @@ function AppRoot() {
   const [onboardingDone, setOnboardingDone] = useState(() => isOnboardingDone())
   const { state } = useApp()
 
+  useEffect(() => {
+    window.ipc.settingsGetFull()
+      .then((res) => {
+        const settings = res as { debug?: { enabled?: boolean } }
+        if (typeof settings.debug?.enabled === 'boolean') {
+          setRendererDebugEnabled(settings.debug.enabled)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   // 本次会话是否已成功连接过（防止断线重连时回退到启动封面）
   const [everConnected, setEverConnected] = useState(false)
   useEffect(() => {
@@ -81,7 +93,10 @@ interface ErrorBoundaryState {
   error: Error | null
 }
 
-class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+class AppErrorBoundary extends Component<
+  { children: ReactNode; title: string; reloadLabel: string },
+  ErrorBoundaryState
+> {
   state: ErrorBoundaryState = { error: null }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
@@ -97,7 +112,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
       return (
         <div className="h-screen flex items-center justify-center bg-background p-8">
           <div className="max-w-md text-center space-y-4">
-            <h2 className="text-lg font-semibold text-destructive">Something went wrong</h2>
+            <h2 className="text-lg font-semibold text-destructive">{this.props.title}</h2>
             <p className="text-sm text-muted-foreground break-all">{this.state.error.message}</p>
             <button
               type="button"
@@ -107,7 +122,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
               }}
               className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
             >
-              Reload
+              {this.props.reloadLabel}
             </button>
           </div>
         </div>
@@ -117,16 +132,28 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
   }
 }
 
+function LocalizedErrorBoundary({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
+  return (
+    <AppErrorBoundary
+      title={t("app.errorBoundary.title")}
+      reloadLabel={t("app.errorBoundary.reload")}
+    >
+      {children}
+    </AppErrorBoundary>
+  )
+}
+
 export default function App() {
   useAppUpdate()
 
   return (
-    <LanguageProvider initialLocale="zh-CN" initialPreference="system">
+    <LanguageProvider initialLocale="zh-CN" initialPreference="zh-CN">
       <TooltipProvider>
         <AppProvider>
-          <AppErrorBoundary>
+          <LocalizedErrorBoundary>
             <AppRoot />
-          </AppErrorBoundary>
+          </LocalizedErrorBoundary>
           <PortConflictDialog />
         </AppProvider>
         <Toaster />
@@ -134,4 +161,3 @@ export default function App() {
     </LanguageProvider>
   )
 }
-

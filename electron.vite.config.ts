@@ -10,6 +10,7 @@ export default defineConfig({
       alias: {
         '@main': resolve('src/main'),
         '@shared': resolve('src/shared'),
+        '@master-agent': resolve('packages/master-agent/src'),
       }
     }
   },
@@ -22,6 +23,7 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src'),
         '@': resolve('src/renderer/src'),
         '@shared': resolve('src/shared'),
+        '@master-agent': resolve('packages/master-agent/src'),
         '@resources': resolve('resources'),
       }
     },

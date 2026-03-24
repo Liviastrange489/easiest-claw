@@ -148,7 +148,7 @@ export function OnboardingDialog({ open, onDone }: OnboardingDialogProps) {
               {/* Preview */}
               <div className="relative shrink-0">
                 <Avatar className="h-16 w-16">
-                  <AvatarImage src={avatarUrl} />
+                  <AvatarImage src={avatarUrl || undefined} />
                   <AvatarFallback className="text-xl font-semibold bg-primary/10 text-primary">
                     {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : initial}
                   </AvatarFallback>

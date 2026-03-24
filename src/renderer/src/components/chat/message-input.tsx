@@ -67,7 +67,6 @@ export function MessageInput({ onSend, onNewSession, onAbort, isGenerating, show
       onSendRef.current(first.content, first.attachments)
     }
   // 只监听 isGenerating 的变化，刻意不加 pendingQueue/onSend
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGenerating])
 
   const slashCompletions = useMemo(() => getSlashCommandCompletions(slashFilter), [slashFilter])
@@ -128,7 +127,6 @@ export function MessageInput({ onSend, onNewSession, onAbort, isGenerating, show
   // 附件数量变化时通知父组件，以便父组件自动扩大面板高度
   useEffect(() => {
     onAttachmentCountChange?.(attachments.length)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachments.length])
 
   const handleSend = useCallback(() => {

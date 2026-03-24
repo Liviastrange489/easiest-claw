@@ -1,12 +1,15 @@
 import type { AppState } from "../app-types"
 import type { GatewayEvent } from "@/hooks/use-openclaw"
 import type { Message, ContentBlock } from "@/types"
+import { rendererDebugLog } from "@/lib/debug"
 import { extractTextContent, extractAssistantContentBlocks, uniqueId, isRecord, resolveAgentIdFromPayload } from "../app-utils"
 
 // Track finalized runIds to prevent duplicate processing (e.g. gateway replays)
 // Use a Map<runId, timestamp> so we can skip only events that arrive significantly later
 const finalizedRunIds = new Map<string, number>()
 const MAX_FINALIZED_IDS = 200
+const runConversationIds = new Map<string, string>()
+const MAX_RUN_CONVERSATION_IDS = 2000
 // Grace period: ignore the dedup check for events arriving within this window
 // (handles React StrictMode double-invocation of reducers)
 const DEDUP_GRACE_MS = 500
@@ -21,10 +24,20 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
   const agentId = resolveAgentIdFromPayload(payload)
   if (!agentId) return state
 
+  const runId = typeof payload.runId === "string" ? payload.runId : ""
   const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : ""
   const groupMatch = sessionKey.match(/^agent:[^:]+:group:(.+)$/)
-  const conversationId = groupMatch ? groupMatch[1] : `conv-${agentId}`
-  const runId = typeof payload.runId === "string" ? payload.runId : ""
+  const conversationId =
+    groupMatch?.[1]
+    ?? (runId ? runConversationIds.get(runId) : undefined)
+    ?? `conv-${agentId}`
+  if (runId && groupMatch?.[1]) {
+    runConversationIds.set(runId, groupMatch[1])
+    if (runConversationIds.size > MAX_RUN_CONVERSATION_IDS) {
+      const first = runConversationIds.keys().next().value
+      if (first) runConversationIds.delete(first)
+    }
+  }
 
   // Skip duplicate chat events for already-finalized runs (e.g. gateway replays)
   // Only filter chat events — agent events (lifecycle, tool, compaction) must always be processed
@@ -32,7 +45,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
   if (runId && eventName === "chat") {
     const finalizedAt = finalizedRunIds.get(runId)
     if (finalizedAt && (Date.now() - finalizedAt) > DEDUP_GRACE_MS) {
-      console.log(`[GW-DEDUP] Skipping chat event for finalized runId=${runId} age=${Date.now() - finalizedAt}ms`)
+      rendererDebugLog(`[GW-DEDUP] Skipping chat event for finalized runId=${runId} age=${Date.now() - finalizedAt}ms`)
       return state
     }
   }
@@ -74,6 +87,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
     // Mark this run as finalized to prevent duplicate processing
     if (runId) {
       finalizedRunIds.set(runId, Date.now())
+      runConversationIds.delete(runId)
       if (finalizedRunIds.size > MAX_FINALIZED_IDS) {
         const first = finalizedRunIds.keys().next().value
         if (first) finalizedRunIds.delete(first)
@@ -314,7 +328,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
           ? patchStreamingWithStructuredBlocks(state, structuredBlocks)
           : state
       const content = extractTextContent(rawContent)
-      console.log(`[GW-FINAL] runId=${runId} content="${content.slice(0, 50)}" thinkingAgents=[${[...nextState.thinkingAgents]}]`)
+      rendererDebugLog(`[GW-FINAL] runId=${runId} content="${content.slice(0, 50)}" thinkingAgents=[${[...nextState.thinkingAgents]}]`)
       // "NO_REPLY" is a sentinel value meaning no text response — treat as empty
       const effectiveContent = content === "NO_REPLY" ? "" : content
       return finalizeStreaming(effectiveContent, nextState)
@@ -456,7 +470,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
         return { ...state, thinkingAgents: next, agents: updatedAgents }
       }
       if (phase === "end" || phase === "error") {
-        console.log(`[GW-LIFECYCLE] ${phase} runId=${runId} agentId=${agentId} thinkingAgents=[${[...state.thinkingAgents]}]`)
+        rendererDebugLog(`[GW-LIFECYCLE] ${phase} runId=${runId} agentId=${agentId} thinkingAgents=[${[...state.thinkingAgents]}]`)
         const next = new Set(state.thinkingAgents)
         next.delete(agentId)
         return { ...state, thinkingAgents: next }
@@ -571,7 +585,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
         }
 
         // Freeze current text content into a text block before adding tool
-        let streamMsg = freezeContentToBlock(msgs[streamIdx])
+        const streamMsg = freezeContentToBlock(msgs[streamIdx])
         const blocks: ContentBlock[] = [...(streamMsg.contentBlocks ?? [])]
 
         // Parse arguments

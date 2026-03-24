@@ -1,13 +1,15 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
-  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/**/*"],
+  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/**/*", "packages/master-agent/src/**/*"],
   "compilerOptions": {
     "composite": true,
     "baseUrl": ".",
     "paths": {
       "@renderer/*": ["./src/renderer/src/*"],
       "@/*": ["./src/renderer/src/*"],
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@master-agent": ["./packages/master-agent/src/index.ts"],
+      "@master-agent/*": ["./packages/master-agent/src/*"]
     }
   }
 }

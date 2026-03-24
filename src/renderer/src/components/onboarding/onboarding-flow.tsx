@@ -5,7 +5,7 @@ const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
 function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "")
 }
-import { Loader2, Wifi, Minus, X, FolderOpen, HardDrive, AlertTriangle, Settings as SettingsIcon } from "lucide-react"
+import { Loader2, Wifi, Minus, X, FolderOpen, HardDrive, AlertTriangle, Settings as SettingsIcon, Wrench } from "lucide-react"
 import { Camera } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -172,6 +172,7 @@ function GatewayLoadingStep() {
   const [extractPercent, setExtractPercent] = useState<number | null>(null)
   const [extractLog, setExtractLog] = useState<string[]>([])
   const [gatewayLog, setGatewayLog] = useState<string[]>([])
+  const [repairing, setRepairing] = useState(false)
   // 升级提示：upgradeInfo 非 null 时展示升级确认卡片
   const [upgradeInfo, setUpgradeInfo] = useState<{ from: string; to: string } | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
@@ -228,6 +229,23 @@ function GatewayLoadingStep() {
     // 跳过后主进程继续用已安装版本，直接启动 gateway
   }
 
+  const handleRepair = async () => {
+    if (repairing) return
+    setRepairing(true)
+    try {
+      const res = await window.ipc.envRepairOpenclaw() as { ok: boolean; error?: string }
+      if (res.ok) {
+        toast.success("OpenClaw 修复完成，正在重试启动")
+      } else {
+        toast.error(res.error ?? "修复失败")
+      }
+    } catch {
+      toast.error("修复失败")
+    } finally {
+      setRepairing(false)
+    }
+  }
+
   // 解压日志自动滚到底部
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
@@ -238,43 +256,63 @@ function GatewayLoadingStep() {
     if (gwLogRef.current) gwLogRef.current.scrollTop = gwLogRef.current.scrollHeight
   }, [gatewayLog])
 
+  const repairButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={handleRepair}
+      disabled={repairing}
+      className="fixed bottom-6 right-6 z-30 h-9 px-3 rounded-lg shadow-sm gap-1.5"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      title="卡住时可点击重装并重启内置 OpenClaw"
+    >
+      {repairing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}
+      {repairing ? "修复中..." : "修复 OpenClaw"}
+    </Button>
+  )
+
   // ── 升级确认卡片 ──────────────────────────────────────────────────────────
   if (upgradeInfo) {
     return (
-      <div className="flex flex-col items-center justify-center gap-6 text-center">
-        <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
-        <div className="w-[400px] rounded-xl border bg-card p-6 text-left space-y-4 shadow-md">
-          <h2 className="text-base font-semibold">{t("onboarding.upgradeTitle")}</h2>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            {t("onboarding.upgradeDesc")}
-          </p>
-          <div className="flex gap-6 text-sm">
-            <div>
-              <span className="text-xs text-muted-foreground">{t("onboarding.upgradeFrom")}</span>
-              <p className="font-mono font-medium">{upgradeInfo.from}</p>
+      <>
+        <div className="flex flex-col items-center justify-center gap-6 text-center">
+          <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
+          <div className="w-[400px] rounded-xl border bg-card p-6 text-left space-y-4 shadow-md">
+            <h2 className="text-base font-semibold">{t("onboarding.upgradeTitle")}</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {t("onboarding.upgradeDesc")}
+            </p>
+            <div className="flex gap-6 text-sm">
+              <div>
+                <span className="text-xs text-muted-foreground">{t("onboarding.upgradeFrom")}</span>
+                <p className="font-mono font-medium">{upgradeInfo.from}</p>
+              </div>
+              <div className="text-muted-foreground self-end pb-0.5">→</div>
+              <div>
+                <span className="text-xs text-muted-foreground">{t("onboarding.upgradeTo")}</span>
+                <p className="font-mono font-medium text-primary">{upgradeInfo.to}</p>
+              </div>
             </div>
-            <div className="text-muted-foreground self-end pb-0.5">→</div>
-            <div>
-              <span className="text-xs text-muted-foreground">{t("onboarding.upgradeTo")}</span>
-              <p className="font-mono font-medium text-primary">{upgradeInfo.to}</p>
+            <div className="flex gap-2 pt-1">
+              <Button className="flex-1" onClick={handleUpgradeConfirm}>
+                {t("onboarding.upgradeConfirm")}
+              </Button>
+              <Button variant="outline" className="flex-1" onClick={handleUpgradeSkip}>
+                {t("onboarding.upgradeSkip")}
+              </Button>
             </div>
-          </div>
-          <div className="flex gap-2 pt-1">
-            <Button className="flex-1" onClick={handleUpgradeConfirm}>
-              {t("onboarding.upgradeConfirm")}
-            </Button>
-            <Button variant="outline" className="flex-1" onClick={handleUpgradeSkip}>
-              {t("onboarding.upgradeSkip")}
-            </Button>
           </div>
         </div>
-      </div>
+        {repairButton}
+      </>
     )
   }
 
   return (
-    <div className="flex flex-col items-center justify-center gap-6 text-center">
-      <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
+    <>
+      <div className="flex flex-col items-center justify-center gap-6 text-center">
+        <img src={logoPng} alt={APP_NAME} className="h-16 w-auto" />
 
       <div className="space-y-1">
         <h1 className="text-xl font-semibold">{APP_NAME}</h1>
@@ -349,7 +387,9 @@ function GatewayLoadingStep() {
           )}
         </div>
       )}
-    </div>
+      </div>
+      {repairButton}
+    </>
   )
 }
 

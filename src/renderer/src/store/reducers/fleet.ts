@@ -93,6 +93,7 @@ export function handleFleetAction(state: AppState, action: AppAction): AppState 
         role: "Agent",
         avatar,
         emoji,
+        providerId: "openclaw",
         skills: [],
         category: "OpenClaw",
         status: "idle",

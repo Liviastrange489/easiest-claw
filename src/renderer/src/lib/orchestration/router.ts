@@ -1,4 +1,5 @@
 import type { Agent, Conversation, OrchestrationStrategy } from "@/types"
+import { createMasterEngine } from "@master-agent"
 import { selectRespondingAgents } from "./skill-matcher"
 
 export interface RoutingDecision {
@@ -8,12 +9,31 @@ export interface RoutingDecision {
   coordinatorMessage?: string
 }
 
+const masterEngine = createMasterEngine()
+
+function normalizeMentionToken(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^@/, "")
+    .replace(/^[("'`\[\{<\u300A\u300C\u3010]+/u, "")
+    .replace(/[)"'`\]\}>.,:;!?]+$/u, "")
+    .replace(/[\uFF0C\u3002\uFF1A\uFF1B\uFF01\uFF1F\u3001\u3009\u300D\u3011]+$/u, "")
+}
+
+function normalizeMentionLookup(raw: string): string {
+  return normalizeMentionToken(raw)
+    .toLowerCase()
+    .replace(/[\s_\-.:;!?,'"`()[\]{}<>/\\|]+/g, "")
+}
+
 export function parseMentions(content: string): string[] {
   const pattern = /@(\S+)/g
   const mentions: string[] = []
   let match: RegExpExecArray | null
   while ((match = pattern.exec(content)) !== null) {
-    mentions.push(match[1])
+    const token = normalizeMentionToken(match[1] ?? "")
+    if (!token) continue
+    mentions.push(token)
   }
   return mentions
 }
@@ -23,9 +43,39 @@ export function resolveMentionedAgentIds(
   agents: Agent[],
   memberIds: string[]
 ): string[] {
-  return mentions
-    .map((name) => agents.find((a) => a.name === name)?.id)
-    .filter((id): id is string => id != null && memberIds.includes(id))
+  const memberSet = new Set(memberIds)
+  const members = agents.filter((agent) => memberSet.has(agent.id))
+  const selected = new Set<string>()
+
+  for (const mention of mentions) {
+    const normalized = normalizeMentionToken(mention)
+    if (!normalized) continue
+    const normalizedLower = normalized.toLowerCase()
+
+    const byId = members.find((agent) => agent.id.toLowerCase() === normalizedLower)
+    if (byId) {
+      selected.add(byId.id)
+      continue
+    }
+
+    const byNameExact = members.find((agent) => agent.name.trim().toLowerCase() === normalizedLower)
+    if (byNameExact) {
+      selected.add(byNameExact.id)
+      continue
+    }
+
+    const normalizedLoose = normalizeMentionLookup(normalized)
+    if (!normalizedLoose) continue
+
+    const byNameLoose = members.filter(
+      (agent) => normalizeMentionLookup(agent.name) === normalizedLoose
+    )
+    if (byNameLoose.length === 1) {
+      selected.add(byNameLoose[0].id)
+    }
+  }
+
+  return Array.from(selected)
 }
 
 function buildCoordinatorMessage(
@@ -37,19 +87,38 @@ function buildCoordinatorMessage(
   const teamMembers = agents
     .filter((a) => memberIds.includes(a.id) && a.id !== coordinatorId)
     .map((a) => {
-      const skills = a.skills.length > 0 ? a.skills.join("、") : "通用"
-      return `- ${a.name} (${a.role}): 擅长 ${skills}`
+      const skills = a.skills.length > 0 ? a.skills.join(" | ") : "general"
+      return `- ${a.name} (${a.role}): strong at ${skills}`
     })
     .join("\n")
 
   return [
-    `[群组消息] 用户问: "${content}"`,
+    `[Group request] User asked: "${content}"`,
     "",
-    "你是这个群组的协调人。群组成员包括:",
+    "You are the coordinator for this group.",
+    "Members:",
     teamMembers,
     "",
-    "请先简要回应用户的问题，然后用 @成员名 的格式指定哪些成员应该参与回答。",
+    "Please provide a brief response to the user first, then assign sub-tasks using @memberName mentions.",
   ].join("\n")
+}
+
+function resolveA2ASeedAgentId(
+  conversation: Conversation,
+  agents: Agent[],
+  memberIds: string[]
+): string | null {
+  const coordinatorId = conversation.orchestration?.coordinatorId
+  if (coordinatorId && memberIds.includes(coordinatorId)) return coordinatorId
+
+  const memberAgents = agents.filter((a) => memberIds.includes(a.id))
+  if (memberAgents.length === 0) return null
+
+  const preferred =
+    memberAgents.find((a) => a.status === "working" || a.status === "thinking")
+    ?? memberAgents[0]
+
+  return preferred?.id ?? null
 }
 
 export function resolveRoutingDecision(
@@ -61,17 +130,21 @@ export function resolveRoutingDecision(
   const agentMemberIds = conversation.members.filter((id) => id !== "user")
   const strategy = conversation.orchestration?.strategy ?? "all"
 
-  // @mentions always take priority over any automatic strategy
+  if (agentMemberIds.length === 0) {
+    return { targetAgentIds: [], strategy, reason: "No agent members in this group" }
+  }
+
+  // @mentions always take priority
   if (mentions.length > 0) {
     const mentionedIds = resolveMentionedAgentIds(mentions, agents, agentMemberIds)
     if (mentionedIds.length > 0) {
       const names = mentionedIds
         .map((id) => agents.find((a) => a.id === id)?.name ?? id)
-        .join("、")
+        .join(", ")
       return {
         targetAgentIds: mentionedIds,
         strategy,
-        reason: `已 @${names}`,
+        reason: `Explicit mention routing: @${names}`,
       }
     }
   }
@@ -88,12 +161,11 @@ export function resolveRoutingDecision(
       )
 
       const hasMatch = results.some((r) => r.score > 0)
-
       if (!hasMatch) {
         return {
           targetAgentIds: agentMemberIds,
           strategy: "skill-match",
-          reason: "未匹配到特定技能，全员回应",
+          reason: "No strong skill match found, fallback to all members",
         }
       }
 
@@ -101,26 +173,25 @@ export function resolveRoutingDecision(
       const details = results
         .map((r) => {
           const agent = agents.find((a) => a.id === r.agentId)
-          const skillInfo = r.matchedSkills.length > 0 ? r.matchedSkills.join("、") : agent?.role ?? ""
+          const skillInfo = r.matchedSkills.length > 0 ? r.matchedSkills.join(", ") : agent?.role ?? ""
           return `${agent?.name ?? r.agentId}(${skillInfo})`
         })
-        .join(" 和 ")
+        .join(" | ")
 
       return {
         targetAgentIds: selectedIds,
         strategy: "skill-match",
-        reason: `智能匹配 → ${details}`,
+        reason: `Smart match => ${details}`,
       }
     }
 
     case "coordinator": {
       const coordinatorId = conversation.orchestration?.coordinatorId
       if (!coordinatorId || !agentMemberIds.includes(coordinatorId)) {
-        // Fallback: no valid coordinator, send to all
         return {
           targetAgentIds: agentMemberIds,
           strategy: "coordinator",
-          reason: "协调人未设置，全员回应",
+          reason: "Coordinator not configured, fallback to all members",
         }
       }
 
@@ -128,13 +199,37 @@ export function resolveRoutingDecision(
       return {
         targetAgentIds: [coordinatorId],
         strategy: "coordinator",
-        reason: `协调人 ${coordinator?.name ?? coordinatorId} 正在分析任务`,
-        coordinatorMessage: buildCoordinatorMessage(
-          content,
-          agents,
-          agentMemberIds,
-          coordinatorId
-        ),
+        reason: `Coordinator ${coordinator?.name ?? coordinatorId} is planning`,
+        coordinatorMessage: buildCoordinatorMessage(content, agents, agentMemberIds, coordinatorId),
+      }
+    }
+
+    case "a2a": {
+      const seedAgentId = resolveA2ASeedAgentId(conversation, agents, agentMemberIds)
+      if (!seedAgentId) {
+        return {
+          targetAgentIds: agentMemberIds,
+          strategy: "a2a",
+          reason: "A2A seed agent missing, fallback to all members",
+        }
+      }
+      const seedAgent = agents.find((a) => a.id === seedAgentId)
+      return {
+        targetAgentIds: [seedAgentId],
+        strategy: "a2a",
+        reason: `A2A coordinator ${seedAgent?.name ?? seedAgentId} is planning`,
+        coordinatorMessage: masterEngine.buildKickoffMessage({
+          userRequest: content,
+          coordinatorId: seedAgentId,
+          members: agents
+            .filter((agent) => agentMemberIds.includes(agent.id))
+            .map((agent) => ({
+              id: agent.id,
+              name: agent.name,
+              role: agent.role,
+              skills: agent.skills,
+            })),
+        }),
       }
     }
 
@@ -145,7 +240,7 @@ export function resolveRoutingDecision(
       return {
         targetAgentIds: [targetId],
         strategy: "round-robin",
-        reason: `轮到 ${agent?.name ?? targetId} 发言`,
+        reason: `Round-robin turn: ${agent?.name ?? targetId}`,
       }
     }
 
@@ -154,7 +249,7 @@ export function resolveRoutingDecision(
       return {
         targetAgentIds: agentMemberIds,
         strategy: "all",
-        reason: "全员回应",
+        reason: "Broadcast to all members",
       }
   }
 }

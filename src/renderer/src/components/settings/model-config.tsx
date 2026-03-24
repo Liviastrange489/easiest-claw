@@ -70,7 +70,6 @@ export function ModelConfigPanel() {
     try {
       const cleanProviders: Record<string, unknown> = {}
       for (const [id, prov] of Object.entries(providers)) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { _note, ...rest } = prov
         const cleanModels = rest.models.map((m) => {
           const writable: Record<string, unknown> = { id: m.id, name: m.name ?? m.id }
