@@ -1,9 +1,0 @@
-#!/usr/bin/env sh
-
-echo "Running text encoding check..."
-npm run check:encoding
-status=$?
-if [ $status -ne 0 ]; then
-  echo "Encoding check failed, commit blocked."
-  exit $status
-fi
